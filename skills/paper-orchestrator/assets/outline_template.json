@@ -1,6 +1,16 @@
 {
   "title": "<paper title>",
   "venue": "<target venue, e.g. CVPR 2025>",
+  "metadata": {
+    "authors": [
+      {
+        "name": "<Author Name>",
+        "affiliation": "<Institution>",
+        "email": "<author@example.edu>"
+      }
+    ],
+    "paper_id": "<submission id or empty>"
+  },
   "sections": [
     {
       "id": "intro",

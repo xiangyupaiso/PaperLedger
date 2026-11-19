@@ -18,7 +18,7 @@ VENDOR_COMMIT: d9bae997e793a015ed38bb1605be9eb58c00284f
 | `utils/pdf_utils.py::compile_latex`（:169–:184）、`methods/paper_writer.py::shutil.copytree` 模板拷贝（:68） | `skill/paper-orchestrator/scripts/latex_compose.py`（Task 5） | copytree/compile 段搬入（Apache 头 + Adapted 行）；\input 接线与 `to_cites` 为自研 |
 | `methods/prompts/outline_agent.py` 输出 schema（:83） | `assets/outline_template.json`、`references/outline-schema.md`（Task 6） | 参照 schema 扩展（非逐字搬代码） |
 | `templates/cvpr2025/`（6 文件） | `skill/paper-orchestrator/templates/cvpr2025/`（Task 5） | **原样逐字节复制**，原条款（见"三"） |
-| `methods/agents/content_refinement_agent.py` reflection 提示词字符串、`methods/prompts/content_refinement_agent.py:17` | `references/` 字符串存档（后续任务） | 提示词文本存档（Apache 文档字符串归档），不建 .py |
+| `methods/agents/content_refinement_agent.py`、`methods/prompts/content_refinement_agent.py:17`、`autoraters/agent_review.py` 等提示词 | `docs/upstream-prompts-archive.md`（完整存档）与 `references/reflection-prompts.md`（运行时精简评分模板） | 提示词文本存档（Apache 出处头保留），不建 .py |
 
 ## 二、分歧记录（与上游行为的每一处偏离）
 

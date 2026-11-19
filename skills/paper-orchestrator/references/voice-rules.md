@@ -86,12 +86,20 @@ INCONCLUSIVE）与处置路由按阶梯 §5；无未决问题条目才放行。
 | 冲突 | 谁赢 | 例子 |
 |---|---|---|
 | 流程/顺序/检查点 | orchestrator | "不许跳步"压过"某 skill 想自己润色" |
+| 流程元数据标记 | orchestrator | 阶段 4 允许并强制 `% @claim:<id>` 行注释（阶段 6 自动剥离） |
 | 文字风格/措辞 | 该阶段唯一拥有者 | 阶段 4 paper-writer 赢，评审建议不直接改稿 |
-| 事实/引用资格 | 验证阶梯（最严者赢） | autorater 夸了但台账没有 → 不成立 |
+| 声音包刻度 vs 泛化禁词/保守不改强 | `voice-calibration.md` | L1 强证据支持直陈或改肯定，不受保守不改强或泛化禁词表误杀 |
+| 引用资格 | 验证阶梯（最严者赢） | autorater 夸了但台账没有 → 不成立 |
 | 评审结论 | pre-submission-reviewer | orchestrator 不自行加判 |
 
 读法：行与行之间再冲突时，流程行管"做不做、什么顺序"，领域行管
 "做成什么样"。orchestrator 永远不自行发明评审结论，也不自行改文风。
+
+**三条流水线局部覆盖条款**（仅在流水线会话内生效，不改变兄弟 skill 独立触发时的规则）：
+
+1. **流程元数据覆盖**：阶段 4 的 `% @claim:<id>` 行注释是台账硬契约（阶段 6 装配自动剥离，终稿零残留），在流水线内优先于 `paper-writer` 的「无内嵌溯源标记」规则；
+2. **Abstract 最终定稿**：阶段 4 先写正文主干（Methods / Experiments / Related Work / Introduction），**Abstract 留待实验结果与阶段 5 图表定型后再定稿**（与 `paper-writer` 一致，防止提前编数与返工）；
+3. **声音包刻度优先**：阶段 4 起草与阶段 7 错配处置/润色时，`references/voice-calibration.md` 的证据刻度尺优先于兄弟 skill（`paper-polish` / `academic-humanizer` / `pre-submission-reviewer`）的泛化禁词表与「不把已 hedge 句改强」保守条款——有 L1 强证据支持时允许改肯定、保留语料许可的精确限定（如 `To our knowledge`），无强证据时才按阶梯降强度或缩小主张。
 
 ## 5. 证据强度–措辞匹配审计（取代机械 hedge 词频预算）
 

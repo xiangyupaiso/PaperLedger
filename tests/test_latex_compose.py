@@ -432,3 +432,228 @@ def test_compose_placeholder_replaced_no_warning(tmp_path, no_tex):
     report = compose(**kw)
     assert report.ok is True
     assert not any("placeholder" in w.lower() for w in report.warnings)
+
+
+# ------------------------------------------------- Phase 0 regression tests
+
+
+def test_cvpr_bib_auto_synced_and_stale_bib_removed(tmp_path, no_tex):
+    kw = _project(
+        tmp_path,
+        "cvpr_real",
+        {"01_intro.tex": "Real intro \\cite{alpha2024deep}.\n"},
+        bib_name="refs.bib",
+    )
+    report = compose(**kw)
+    out = kw["out_dir"]
+    tex = (out / "template.tex").read_text(encoding="utf-8")
+    assert r"\bibliography{refs}" in tex
+    assert r"\bibliography{references}" not in tex
+    assert (out / "refs.bib").is_file()
+    assert not (out / "references.bib").exists()
+    assert report.missing_citations == []
+    assert report.ok is True
+
+
+def test_compile_checks_log_and_blg_even_if_pdf_exists(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        latex_compose.shutil,
+        "which",
+        lambda name: f"/fake/{name}" if name in ("pdflatex", "bibtex") else None,
+    )
+
+    def fake_bad_log(command, **kwargs):
+        cwd = Path(kwargs["cwd"])
+        exe = Path(command[0]).name.lower()
+        if exe == "pdflatex":
+            stem = Path(command[-1]).stem
+            (cwd / f"{stem}.pdf").write_bytes(b"%PDF-1.4 broken")
+            (cwd / f"{stem}.log").write_text(
+                "! Undefined control sequence.\n"
+                "LaTeX Warning: Citation `missing2024' on page 1 undefined.\n"
+                "LaTeX Warning: There were undefined citations.\n",
+                encoding="utf-8",
+            )
+        elif exe == "bibtex":
+            (cwd / f"{command[1]}.blg").write_text(
+                "Warning--I didn't find a database entry for \"missing2024\"\n",
+                encoding="utf-8",
+            )
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(latex_compose.subprocess, "run", fake_bad_log)
+    kw = _project(tmp_path, "mini_template", {"01_intro.tex": "Body.\n"})
+    report = compose(**kw)
+    assert report.compiled is False
+    assert report.ok is False
+    assert any("compile" in w.lower() for w in report.warnings)
+
+
+def test_tables_dir_staged_stripped_and_checked(tmp_path, no_tex):
+    kw = _project(
+        tmp_path,
+        "mini_template",
+        {"01_intro.tex": "See \\input{tables/tab_main}.\n"},
+    )
+    tab_dir = tmp_path / "tables"
+    tab_dir.mkdir()
+    (tab_dir / "tab_main.tex").write_text(
+        "% @claim:E1\n"
+        "\\begin{table}[t]\n"
+        "Main table [1] and \\cite{ghost_tab_key}.\n"
+        "\\end{table}\n",
+        encoding="utf-8",
+    )
+    report = compose(
+        **kw,
+        tables_dir=tab_dir,
+        numeric_map={"1": "alpha2024deep"},
+    )
+    staged_tab = (kw["out_dir"] / "tables" / "tab_main.tex").read_text(encoding="utf-8")
+    assert "@claim" not in staged_tab
+    assert r"\cite{alpha2024deep}" in staged_tab
+    assert report.missing_files == []
+    assert report.missing_citations == ["ghost_tab_key"]
+    assert report.ok is False
+
+
+def test_outline_metadata_injected_and_idempotent(tmp_path, no_tex):
+    outline = tmp_path / "outline.json"
+    outline.write_text(
+        json.dumps({
+            "title": "Deterministic Provenance for Research Papers",
+            "venue": "CVPR 2025",
+            "metadata": {
+                "authors": [
+                    {
+                        "name": "Alice Smith",
+                        "affiliation": "Example Lab",
+                        "email": "alice_s@example.edu",
+                    },
+                    {
+                        "name": "Bob Jones",
+                        "affiliation": "Test University",
+                        "email": "bob@test.edu",
+                    },
+                ],
+                "paper_id": "4291",
+            },
+            "sections": [],
+            "lit_strategy": {"queries": ["q"], "must_contain": ["m"]},
+            "viz_plan": {"figures": []},
+        }),
+        encoding="utf-8",
+    )
+    kw = _project(
+        tmp_path,
+        "cvpr_real",
+        {"01_intro.tex": "Draft v1.\n"},
+        bib_name="refs.bib",
+    )
+    report1 = compose(**kw, outline_path=outline)
+    assert report1.ok is True
+    assert not any("placeholder" in w.lower() for w in report1.warnings)
+    tex1 = (kw["out_dir"] / "template.tex").read_text(encoding="utf-8")
+    assert r"\title{Deterministic Provenance for Research Papers}" in tex1
+    assert "Alice Smith" in tex1 and "Bob Jones" in tex1
+    assert r"alice\_s@example.edu" in tex1
+    assert r"\def\paperID{4291}" in tex1
+    # Stage 7 edits sections/ and re-runs compose: metadata stays intact.
+    (kw["sections_dir"] / "01_intro.tex").write_text("Polished v2.\n", encoding="utf-8")
+    report2 = compose(**kw, outline_path=outline)
+    assert report2.ok is True
+    assert not any("placeholder" in w.lower() for w in report2.warnings)
+    tex2 = (kw["out_dir"] / "template.tex").read_text(encoding="utf-8")
+    assert r"\title{Deterministic Provenance for Research Papers}" in tex2
+    assert (kw["out_dir"] / "sections" / "01_intro.tex").read_text(encoding="utf-8") == "Polished v2.\n"
+
+
+def test_companion_preview_png_excluded_when_pdf_exists(tmp_path, no_tex):
+    kw = _project(
+        tmp_path,
+        "mini_template",
+        {"01_intro.tex": "\\includegraphics{figures/conv.pdf}\n"},
+        figures={
+            "conv.pdf": b"%PDF-1.4 vector",
+            "conv.png": b"\x89PNG\r\n\x1a\npreview",
+            "standalone.png": b"\x89PNG\r\n\x1a\nstandalone",
+        },
+    )
+    report = compose(**kw)
+    assert report.ok is True
+    assert (kw["out_dir"] / "figures" / "conv.pdf").is_file()
+    assert not (kw["out_dir"] / "figures" / "conv.png").exists()
+    assert (kw["out_dir"] / "figures" / "standalone.png").is_file()
+
+
+def test_wire_handles_stray_brace_and_pre_maketitle_abstract(tmp_path, no_tex):
+    tpl = tmp_path / "tpl_iclr"
+    tpl.mkdir()
+    (tpl / "main.tex").write_text(
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "\\begin{abstract}\n"
+        "Template dummy abstract.\n"
+        "\\end{abstract}\n"
+        "\\maketitle\n"
+        "Example intro.\n"
+        "{\n"
+        "Stray group in example.\n"
+        "}\n"
+        "\\bibliographystyle{plain}\n"
+        "\\bibliography{refs}\n"
+        "\\end{document}\n",
+        encoding="utf-8",
+    )
+    kw = _project(
+        tmp_path,
+        "mini_template",
+        {"00_abstract.tex": "\\begin{abstract}\nReal abstract.\n\\end{abstract}\n"},
+    )
+    kw["template_dir"] = tpl
+    report = compose(**kw)
+    assert report.ok is True
+    tex = (kw["out_dir"] / "main.tex").read_text(encoding="utf-8")
+    assert "Template dummy abstract." not in tex
+    assert "Stray group in example." not in tex
+    assert r"\input{sections/00_abstract}" in tex
+
+
+def test_to_cites_protects_macros_equations_comments_and_expands_ranges():
+    nmap = {"1": "k1", "2": "k2", "3": "k3"}
+    tex = (
+        "\\newcommand{\\foo}[1]{#1}\n"
+        "% [1] commented out\n"
+        "\\begin{equation}\n"
+        "x[1] = 0\n"
+        "\\end{equation}\n"
+        "Prior works [1-3] and [1--2] agree.\n"
+    )
+    out = to_cites(tex, nmap)
+    assert r"\newcommand{\foo}[1]{#1}" in out
+    assert "% [1] commented out" in out
+    assert "x[1] = 0" in out
+    assert r"\cite{k1,k2,k3}" in out
+    assert r"\cite{k1,k2}" in out
+    with pytest.raises(CiteError):
+        to_cites("Bad range [3-1].", nmap)
+
+
+def test_integrity_ignores_comments_and_checks_natbib_variants(tmp_path, no_tex):
+    kw = _project(
+        tmp_path,
+        "mini_template",
+        {
+            "01_intro.tex": (
+                "% \\input{sections/ghost}\n"
+                "% \\includegraphics{figures/ghost.png}\n"
+                "% \\cite{ghost_comment_key}\n"
+                "As shown by \\citeauthor{alpha2024deep} and \\citealp{missing_alp}.\n"
+            )
+        },
+    )
+    report = compose(**kw)
+    assert report.missing_files == []
+    assert report.raster_refs == []
+    assert report.missing_citations == ["missing_alp"]
+    assert report.ok is False

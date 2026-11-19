@@ -36,8 +36,8 @@ pathlib/dataclasses). No LLM calls.
 
 Library surface:
     compose(template_dir, sections_dir, bib_path, figures_dir, out_dir,
-            numeric_map=None) -> ComposeReport
-    to_cites(tex, numeric_map) -> str        # [n]/[n,m] -> \\cite{key}
+            numeric_map=None, tables_dir=None, outline_path=None) -> ComposeReport
+    to_cites(tex, numeric_map) -> str        # [n]/[n,m]/[n-m] -> \\cite{key}
     CiteError                                # missing / out-of-range number
     ComposeReport.ok                         # False on any integrity violation
                                              # or a failed compile; None
@@ -60,7 +60,8 @@ numbers -> one citekey) are legal multi-point citations: warning only (R1).
 
 CLI:
     python latex_compose.py --template DIR --sections DIR --bib refs.bib \
-        --figures DIR --out manuscript/ [--numeric-map map.json]
+        --figures DIR --out manuscript/ [--tables DIR] [--outline outline.json] \
+        [--numeric-map map.json]
 """
 from __future__ import annotations
 
@@ -76,19 +77,32 @@ from pathlib import Path
 
 MARKER = "% >>> paper-orchestrator: sections"
 CLAIM_LINE = re.compile(r"^\s*%\s*@claim:")
-NUM_GROUP = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
+NUM_GROUP = re.compile(r"\[(\d+(?:\s*(?:,|--|-)\s*\d+)*)\]")
 # Regions where a bare [digit] group is NOT a draft citation: math spans
-# ($...$, $$...$$, \(...\), \[...\]; $ delimiters guarded against escaped \$)
-# and \cite-variant optional args (\cite[1], \citep[see][p.~12], \citet[...]).
+# (display env, $...$, $$...$$, \(...\), \[...\]), comments, \cite optional
+# args, and LaTeX macro/item/linebreak optional args.
 MATH_SPAN_RE = re.compile(
-    r"(?<!\\)\$\$.*?(?<!\\)\$\$"
+    r"\\begin\{(equation|align|gather|multline|flalign|eqnarray)\*?\}.*?\\end\{\1\*?\}"
+    r"|(?<!\\)\$\$.*?(?<!\\)\$\$"
     r"|(?<!\\)\$[^$]*?(?<!\\)\$"
     r"|\\\(.*?\\\)"
     r"|\\\[.*?\\\]",
     re.DOTALL,
 )
-CITE_OPT_RE = re.compile(r"\\cite[tp]?\*?(?:\[[^\]]*\])+")
-CITE_RE = re.compile(r"\\cite[tp]?\*?(?:\[[^\]]*\])*\{([^}]*)\}")
+COMMENT_SPAN_RE = re.compile(r"(?<!\\)%[^\n]*")
+CITE_OPT_RE = re.compile(
+    r"\\(?:cite[a-z]*|parencite|textcite|autocite|footcite)\*?(?:\[[^\]]*\])+"
+)
+MACRO_OPT_RE = re.compile(
+    r"\\(?:re|provide)?newcommand\*?(?:\{[^{}]*\}|\\[A-Za-z@]+)\s*\[\d+\]"
+    r"|\\DeclareRobustCommand\*?(?:\{[^{}]*\}|\\[A-Za-z@]+)\s*\[\d+\]"
+    r"|\\(?:re)?newenvironment\*?\{[^{}]*\}\s*\[\d+\]"
+    r"|\\item\s*\[\d+\]"
+    r"|\\\\\s*\[\d+(?:\.\d+)?\s*(?:pt|em|ex|mm|cm|in)?\]"
+)
+CITE_RE = re.compile(
+    r"\\(?:cite[a-z]*|parencite|textcite|autocite|footcite)\*?(?:\[[^\]]*\])*\{([^}]*)\}"
+)
 INPUT_RE = re.compile(r"\\(?:input|include)\{([^}]+)\}")
 GRAPHICS_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}")
 BIB_KEY_RE = re.compile(r"@\w+\s*\{\s*([^,\s{}]+)\s*,")
@@ -102,6 +116,7 @@ CVPR_PLACEHOLDERS = (
     "Ambitious AI Researcher",
     "\\def\\paperID{12345678}",
 )
+_MAX_RANGE_EXPAND = 200
 
 
 class CiteError(ValueError):
@@ -127,41 +142,53 @@ class ComposeReport:
 
 
 def to_cites(tex: str, numeric_map: dict[str, str]) -> str:
-    """Bridge numeric draft citations [n] / [n,m] to \\cite{key,...}.
+    """Bridge numeric draft citations [n] / [n,m] / [n-m] to \\cite{key,...}.
 
     Every number must exist in numeric_map (keys are number strings "1"..);
-    a missing or out-of-range number raises CiteError. Several numbers mapping
-    to the SAME citekey are legal (multi-point citation of one reference):
-    keys are deduplicated inside the \\cite, no error is raised.
+    a missing, inverted, or out-of-range number raises CiteError. Several
+    numbers mapping to the SAME citekey are legal (multi-point citation of
+    one reference): keys are deduplicated inside the \\cite, no error is raised.
 
-    Guards (final-review F2): [digit] groups inside math spans ($...$,
-    $$...$$, \\(...\\), \\[...\\]) are indexing, and those inside \\cite-variant
-    optional args (\\cite[1]{key} etc.) are natbib notes -- both are left
-    untouched. Each prose conversion emits one stderr warning line listing
-    what was bridged.
+    Guards: [digit] groups inside math spans (display environments, $...$,
+    $$...$$, \\(...\\), \\[...\\]), % comments, \\cite-variant optional args,
+    and macro/item/linebreak optional args are left untouched. Each prose
+    conversion emits one stderr warning line listing what was bridged.
     """
     protected = [
         (m.start(), m.end())
-        for rx in (MATH_SPAN_RE, CITE_OPT_RE)
+        for rx in (MATH_SPAN_RE, COMMENT_SPAN_RE, CITE_OPT_RE, MACRO_OPT_RE)
         for m in rx.finditer(tex)
     ]
     bridged: list[str] = []
 
+    def _expand_token(token: str) -> list[int]:
+        tok = token.strip()
+        rm = re.fullmatch(r"(\d+)\s*(?:--|-)\s*(\d+)", tok)
+        if rm:
+            lo, hi = int(rm.group(1)), int(rm.group(2))
+            if lo > hi or (hi - lo) > _MAX_RANGE_EXPAND:
+                raise CiteError(
+                    f"[{tok}] is an invalid citation range in numeric_map"
+                )
+            return list(range(lo, hi + 1))
+        return [int(tok)]
+
     def _replace(m: re.Match) -> str:
         if any(s <= m.start() < e for s, e in protected):
-            return m.group(0)  # math index / cite optional arg: not a citation
+            return m.group(0)
         keys: list[str] = []
         for token in m.group(1).split(","):
-            number = str(int(token.strip()))
-            if number not in numeric_map:
-                raise CiteError(
-                    f"[{number}] has no citekey in numeric_map "
-                    f"(missing or out of range; map covers "
-                    f"{sorted(numeric_map)})"
-                )
-            key = numeric_map[number]
-            if key not in keys:
-                keys.append(key)
+            for num in _expand_token(token):
+                number = str(num)
+                if number not in numeric_map:
+                    raise CiteError(
+                        f"[{number}] has no citekey in numeric_map "
+                        f"(missing or out of range; map covers "
+                        f"{sorted(numeric_map)})"
+                    )
+                key = numeric_map[number]
+                if key not in keys:
+                    keys.append(key)
         cite = "\\cite{" + ",".join(keys) + "}"
         bridged.append(f"{m.group(0)} -> {cite}")
         return cite
@@ -180,6 +207,11 @@ def _strip_claim_lines(text: str) -> str:
     )
 
 
+def _strip_comments(text: str) -> str:
+    """Strip unescaped % comments line-by-line for static integrity scans."""
+    return "\n".join(COMMENT_SPAN_RE.sub("", line) for line in text.splitlines())
+
+
 def _find_entry(template_dir: Path) -> str:
     for name in ("main.tex", "template.tex"):
         if (template_dir / name).is_file():
@@ -189,8 +221,31 @@ def _find_entry(template_dir: Path) -> str:
     )
 
 
-def _wire(entry_text: str, inputs: list[str], warnings: list[str]) -> str:
+def _strip_pre_maketitle_abstract(text: str) -> str:
+    """Remove example abstract blocks occurring before \\maketitle (e.g. ICLR/IEEE)."""
+    mk = re.search(r"\\maketitle\b", text)
+    if not mk:
+        return text
+    head = text[: mk.start()]
+    tail = text[mk.start() :]
+    cleaned_head = re.sub(
+        r"\\begin\{abstract\}.*?\\end\{abstract\}\s*",
+        "",
+        head,
+        flags=re.DOTALL,
+    )
+    return cleaned_head + tail
+
+
+def _wire(
+    entry_text: str,
+    inputs: list[str],
+    warnings: list[str],
+    has_abstract: bool = False,
+) -> str:
     """Insert \\input lines: marker path first, else the memo's no-marker rule."""
+    if has_abstract:
+        entry_text = _strip_pre_maketitle_abstract(entry_text)
     lines = entry_text.splitlines()
     marker_idx = next(
         (i for i, l in enumerate(lines) if MARKER in l), None
@@ -200,13 +255,19 @@ def _wire(entry_text: str, inputs: list[str], warnings: list[str]) -> str:
         return "\n".join(lines) + "\n"
 
     maketitle_idx = next(
-        (i for i, l in enumerate(lines) if re.search(r"\\maketitle\b", l)),
+        (
+            i for i, l in enumerate(lines)
+            if not l.lstrip().startswith("%") and re.search(r"\\maketitle\b", l)
+        ),
         None,
     )
     if maketitle_idx is None:
         begin_idx = next(
-            (i for i, l in enumerate(lines)
-             if re.search(r"\\begin\{document\}", l)),
+            (
+                i for i, l in enumerate(lines)
+                if not l.lstrip().startswith("%")
+                and re.search(r"\\begin\{document\}", l)
+            ),
             None,
         )
         if begin_idx is None:
@@ -221,13 +282,15 @@ def _wire(entry_text: str, inputs: list[str], warnings: list[str]) -> str:
         lines[begin_idx + 1:begin_idx + 1] = [""] + inputs
         return "\n".join(lines) + "\n"
 
-    # No-marker path per vendor-notices 四: the example body spans from just
-    # after the first \maketitle up to the `{` line opening the \small
-    # bibliography block (cvpr2025: \maketitle :27, region :28-:64, block
-    # :65-:69). Everything from the bibliography block on is kept verbatim.
+    # No-marker path per vendor-notices 四: replace the example body between
+    # \maketitle and the bibliography block (bounded upward scan so unrelated `{`
+    # lines in non-CVPR example bodies cannot leave example text behind).
     bib_idx = next(
-        (i for i, l in enumerate(lines)
-         if re.search(r"\\bibliography(?:style)?\{", l)),
+        (
+            i for i in range(maketitle_idx + 1, len(lines))
+            if not lines[i].lstrip().startswith("%")
+            and re.search(r"\\bibliography(?:style)?\{", lines[i])
+        ),
         None,
     )
     if bib_idx is None:
@@ -237,13 +300,27 @@ def _wire(entry_text: str, inputs: list[str], warnings: list[str]) -> str:
         )
         lines[maketitle_idx + 1:maketitle_idx + 1] = [""] + inputs
         return "\n".join(lines) + "\n"
+
     block_start = bib_idx
     j = bib_idx - 1
+    bib_wrapper_re = re.compile(
+        r"^\\(?:small|footnotesize|scriptsize|normalsize|bibliographystyle\{[^}]*\})\b"
+    )
+    bib_open_re = re.compile(
+        r"^\{\s*\\(?:small|footnotesize|scriptsize|normalsize)\b"
+    )
     while j > maketitle_idx:
-        if lines[j].strip() == "{":
+        s = lines[j].strip()
+        if not s or s.startswith("%"):
+            j -= 1
+            continue
+        if s == "{" or bib_open_re.match(s):
             block_start = j
             break
-        j -= 1
+        if bib_wrapper_re.match(s):
+            j -= 1
+            continue
+        break
     lines[maketitle_idx + 1:block_start] = [""] + inputs + [""]
     return "\n".join(lines) + "\n"
 
@@ -255,7 +332,7 @@ def _integrity(
     out_dir: Path,
 ) -> tuple[list[str], list[str], list[str]]:
     """Scan the assembled manuscript for cites/files/raster figures."""
-    texts = [entry_text, *bodies.values()]
+    texts = [_strip_comments(t) for t in (entry_text, *bodies.values())]
     bib_keys = set(BIB_KEY_RE.findall(bib_text))
     missing_citations: set[str] = set()
     missing_files: list[str] = []
@@ -305,6 +382,59 @@ def _integrity(
     return sorted(missing_citations), missing_files, raster_refs
 
 
+def _check_compile_logs(
+    cwd: str, texfile_name: str, execution_logs: list[dict]
+) -> list[str]:
+    """Detect fatal TeX errors, undefined cites/refs, and bibtex DB errors."""
+    errors: list[str] = []
+    for log in execution_logs:
+        if "error" in log:
+            errors.append(f"{log['cmd']}: {log['error']}")
+            continue
+        cmd = log.get("cmd", "")
+        rc = log.get("returncode", 0)
+        if not cmd.startswith("bibtex") and rc != 0:
+            errors.append(f"{cmd} exited {rc}")
+
+    tex_log = Path(cwd) / f"{texfile_name}.log"
+    if tex_log.is_file():
+        ltxt = tex_log.read_text(encoding="utf-8", errors="replace")
+        for line in ltxt.splitlines():
+            if line.startswith("! "):
+                errors.append(line.strip())
+                break
+        if "Emergency stop" in ltxt:
+            errors.append("Emergency stop in TeX log")
+        if (
+            "There were undefined citations" in ltxt
+            or re.search(r"LaTeX Warning: Citation .+ undefined", ltxt)
+        ):
+            errors.append("undefined citations in TeX log")
+        if "There were undefined references" in ltxt:
+            errors.append("undefined references in TeX log")
+
+    blg_path = Path(cwd) / f"{texfile_name}.blg"
+    bib_blobs: list[str] = []
+    if blg_path.is_file():
+        bib_blobs.append(blg_path.read_text(encoding="utf-8", errors="replace"))
+    for log in execution_logs:
+        if log.get("cmd", "").startswith("bibtex"):
+            bib_blobs.append((log.get("stdout") or "") + "\n" + (log.get("stderr") or ""))
+    blg = "\n".join(bib_blobs)
+    if blg:
+        for needle in (
+            "I couldn't open database file",
+            "I found no \\bibdata command",
+            "I couldn't open style file",
+            "Warning--I didn't find a database entry for",
+        ):
+            if needle in blg:
+                errors.append(f"bibtex: {needle}")
+        if re.search(r"\(There (?:was|were) \d+ error messages?\)", blg):
+            errors.append("bibtex reported error message(s)")
+    return errors
+
+
 def compile_latex(
     cwd: str,
     texfile_name: str = "template",
@@ -315,8 +445,8 @@ def compile_latex(
 
     engine="latexmk" runs a single ``latexmk -pdf`` pass; otherwise the
     ported upstream sequence runs: pdflatex -> bibtex -> pdflatex x2 (with
-    the probed engine substituted). Success = the PDF exists afterwards and
-    no command timed out (upstream rule :217-221). Returns (success, logs).
+    the probed engine substituted). Success requires PDF existence, zero TeX
+    engine returncode, no timeouts, and clean .log/.blg diagnostics.
     """
     source_pdf = os.path.join(cwd, f"{texfile_name}.pdf")
     if os.path.exists(source_pdf):
@@ -366,11 +496,17 @@ def compile_latex(
         except Exception as e:
             execution_logs.append({"cmd": cmd_str, "error": str(e)})
 
-    has_timeout = any(
-        "error" in log and "TIMEOUT" in log["error"]
-        for log in execution_logs
-    )
-    return os.path.exists(source_pdf) and not has_timeout, execution_logs
+    log_errors = _check_compile_logs(cwd, texfile_name, execution_logs)
+    if log_errors:
+        summary = "; ".join(log_errors)
+        execution_logs.append({
+            "cmd": f"log-check ({summary})",
+            "returncode": 1,
+            "error": summary,
+        })
+
+    success = os.path.exists(source_pdf) and not log_errors
+    return success, execution_logs
 
 
 def _probe_toolchain() -> str | None:
@@ -380,6 +516,114 @@ def _probe_toolchain() -> str | None:
     return None
 
 
+def _ignore_preview_png(src: str, names: list[str]) -> set[str]:
+    """Skip companion <stem>.png previews when <stem>.pdf is present."""
+    name_set = set(names)
+    pdf_stems = {
+        Path(n).stem for n in name_set if Path(n).suffix.lower() == ".pdf"
+    }
+    return {
+        n for n in name_set
+        if Path(n).suffix.lower() == ".png"
+        and Path(n).stem in pdf_stems
+        and (Path(src) / n).is_file()
+    }
+
+
+def _has_placeholder(val: str) -> bool:
+    s = val.strip()
+    return not s or ("<" in s and ">" in s)
+
+
+def _replace_brace_arg(tex: str, cmd_pattern: str, new_body: str) -> str:
+    """Replace the brace-balanced argument of the first uncommented cmd match."""
+    for m in re.finditer(cmd_pattern, tex):
+        line_start = tex.rfind("\n", 0, m.start()) + 1
+        if re.search(r"(?<!\\)%", tex[line_start : m.start()]):
+            continue
+        open_idx = m.end() - 1
+        depth = 0
+        i = open_idx
+        n = len(tex)
+        while i < n:
+            ch = tex[i]
+            if ch == "\\" and i + 1 < n:
+                i += 2
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return tex[: open_idx + 1] + new_body + tex[i:]
+            i += 1
+        break
+    return tex
+
+
+def _apply_outline_metadata(tex: str, outline_path: Path) -> str:
+    """Inject title, authors, and paper_id from outline.json when concrete."""
+    data = json.loads(outline_path.read_text(encoding="utf-8"))
+    title = data.get("title")
+    if isinstance(title, str) and not _has_placeholder(title):
+        tex = _replace_brace_arg(tex, r"\\title\s*\{", title.strip())
+
+    meta = data.get("metadata") or {}
+    if isinstance(meta, dict):
+        authors = meta.get("authors")
+        if isinstance(authors, list) and authors:
+            blocks: list[str] = []
+            for a in authors:
+                if not isinstance(a, dict):
+                    continue
+                name = str(a.get("name") or "")
+                if _has_placeholder(name):
+                    continue
+                lines = [name.strip()]
+                aff = str(a.get("affiliation") or "")
+                if not _has_placeholder(aff):
+                    lines.append(aff.strip())
+                email = str(a.get("email") or "")
+                if not _has_placeholder(email):
+                    esc_email = re.sub(r"(?<!\\)_", r"\\_", email.strip())
+                    lines.append(f"{{\\tt\\small {esc_email}}}")
+                blocks.append("\\\\\n".join(lines))
+            if blocks:
+                tex = _replace_brace_arg(
+                    tex, r"\\author\s*\{", "\n" + "\n\\and\n".join(blocks) + "\n"
+                )
+        paper_id = meta.get("paper_id")
+        if paper_id is not None and not _has_placeholder(str(paper_id)):
+            pid = str(paper_id).strip()
+            tex = _replace_brace_arg(tex, r"\\def\s*\\paperID\s*\{", pid)
+    return tex
+
+
+def _sync_bibliography(
+    wired: str, bib_stem: str, out_dir: Path
+) -> str:
+    """Rewrite uncommented \\bibliography{...} to bib_stem and prune stale .bib."""
+    out_lines: list[str] = []
+    bib_cmd_re = re.compile(r"(\\bibliography\{)([^}]*)(\})")
+    for line in wired.splitlines(keepends=True):
+        code, sep, comment = line.partition("%")
+        if not line.lstrip().startswith("%") and bib_cmd_re.search(code):
+            def _sub(m: re.Match) -> str:
+                old_stems = [s.strip() for s in m.group(2).split(",") if s.strip()]
+                if old_stems == [bib_stem]:
+                    return m.group(0)
+                for old_s in old_stems:
+                    if old_s != bib_stem:
+                        stale = out_dir / f"{old_s}.bib"
+                        if stale.is_file():
+                            stale.unlink()
+                return f"{m.group(1)}{bib_stem}{m.group(3)}"
+            code = bib_cmd_re.sub(_sub, code)
+            line = code + sep + comment
+        out_lines.append(line)
+    return "".join(out_lines)
+
+
 def compose(
     template_dir,
     sections_dir,
@@ -387,13 +631,16 @@ def compose(
     figures_dir,
     out_dir,
     numeric_map: dict[str, str] | None = None,
+    tables_dir=None,
+    outline_path=None,
 ) -> ComposeReport:
     """Stage the template, wire sections, bridge numeric cites, check, compile.
 
     out_dir receives: the template files (staged copytree), sections/*.tex
-    (claim-marker-stripped, numeric cites converted), figures/*, the bib file,
-    the wired entry .tex and compose_report.json. compiled is None when no
-    TeX toolchain exists (ok is not failed by that).
+    (claim-marker-stripped, numeric cites converted), optional tables/*.tex,
+    figures/* (excluding companion PNG previews), the bib file, the wired
+    entry .tex and compose_report.json. compiled is None when no TeX
+    toolchain exists (ok is not failed by that).
     """
     template_dir = Path(template_dir)
     sections_dir = Path(sections_dir)
@@ -411,7 +658,10 @@ def compose(
         figures_dir = Path(figures_dir)
         if figures_dir.is_dir():
             shutil.copytree(
-                figures_dir, out_dir / "figures", dirs_exist_ok=True
+                figures_dir,
+                out_dir / "figures",
+                dirs_exist_ok=True,
+                ignore=_ignore_preview_png,
             )
         else:
             warnings.append(f"figures dir not found: {figures_dir}")
@@ -432,6 +682,20 @@ def compose(
         bodies[path.name] = text
     inputs = [f"\\input{{sections/{p.stem}}}" for p in section_files]
 
+    if tables_dir is not None:
+        tables_dir = Path(tables_dir)
+        if tables_dir.is_dir():
+            tab_out = out_dir / "tables"
+            tab_out.mkdir(exist_ok=True)
+            for path in sorted(tables_dir.glob("*.tex"), key=lambda p: p.name):
+                text = _strip_claim_lines(path.read_text(encoding="utf-8"))
+                if numeric_map is not None:
+                    text = to_cites(text, numeric_map)
+                (tab_out / path.name).write_text(text, encoding="utf-8")
+                bodies[f"tables/{path.name}"] = text
+        else:
+            warnings.append(f"tables dir not found: {tables_dir}")
+
     # R1: several numbers -> one citekey is legal; warn, never error.
     if numeric_map:
         by_key: dict[str, list[str]] = {}
@@ -447,10 +711,19 @@ def compose(
                     f"citekey '{key}' (multi-point citation; legal)"
                 )
 
+    has_abstract = any(
+        re.search(r"\\begin\{abstract\}", b) for b in bodies.values()
+    )
     entry_path = out_dir / entry_name
     wired = _wire(
-        entry_path.read_text(encoding="utf-8"), inputs, warnings
+        entry_path.read_text(encoding="utf-8"),
+        inputs,
+        warnings,
+        has_abstract=has_abstract,
     )
+    if outline_path is not None:
+        wired = _apply_outline_metadata(wired, Path(outline_path))
+    wired = _sync_bibliography(wired, bib_path.stem, out_dir)
     entry_path.write_text(wired, encoding="utf-8")
 
     # F4: known cvpr2025 author-kit placeholders surviving in the assembled
@@ -463,13 +736,6 @@ def compose(
                 f"{entry_name}; update title/author/paperID from outline.json "
                 f"before submission"
             )
-
-    bib_cmd = re.search(r"\\bibliography\{([^}]*)\}", wired)
-    if bib_cmd and bib_cmd.group(1) != bib_path.stem:
-        warnings.append(
-            f"\\bibliography{{{bib_cmd.group(1)}}} does not match the copied "
-            f"bib stem '{bib_path.stem}'; bibtex will not find the database"
-        )
 
     missing_citations, missing_files, raster_refs = _integrity(
         wired, bodies, bib_path.read_text(encoding="utf-8"), out_dir
@@ -529,6 +795,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sections", required=True, help="sections dir")
     parser.add_argument("--bib", required=True, help="refs.bib path")
     parser.add_argument("--figures", default=None, help="figures dir")
+    parser.add_argument("--tables", default=None, help="optional tables dir")
+    parser.add_argument("--outline", default=None, help="optional outline.json for metadata")
     parser.add_argument("--out", required=True, help="output manuscript dir")
     parser.add_argument(
         "--numeric-map", default=None,
@@ -543,8 +811,14 @@ def main(argv: list[str] | None = None) -> None:
         )
     try:
         report = compose(
-            args.template, args.sections, args.bib, args.figures, args.out,
+            args.template,
+            args.sections,
+            args.bib,
+            args.figures,
+            args.out,
             numeric_map=numeric_map,
+            tables_dir=args.tables,
+            outline_path=args.outline,
         )
     except CiteError as e:
         print(f"cite error: {e}", file=sys.stderr)

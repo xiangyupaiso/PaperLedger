@@ -24,10 +24,14 @@ Ported or adapted material in this distribution:
   Derived from the output schema in methods/prompts/outline_agent.py
   (extended with a lit_strategy field that does not exist upstream).
 
-- skills/paper-orchestrator/references/reflection-prompts.md
-  Archived prompt text from methods/agents/content_refinement_agent.py,
+- docs/upstream-prompts-archive.md and
+  skills/paper-orchestrator/references/reflection-prompts.md
+  Archived prompt text (full archive in docs/; slim conflict-free runtime
+  autorater rubric in references/) from
+  methods/agents/content_refinement_agent.py,
   methods/prompts/content_refinement_agent.py,
   methods/prompts/outline_agent.py,
+  autoraters/agent_review.py,
   autoraters/prompts/lit_review_quality_prompts.py, and
   autoraters/prompts/sxs_quality_prompts.py.
 

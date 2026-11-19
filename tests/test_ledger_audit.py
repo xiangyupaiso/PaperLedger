@@ -596,16 +596,16 @@ def test_leading_decimal_prose_number_audited(tmp_path):
 
 
 def test_canonical_l3_deixis_not_flagged(tmp_path):
-    """F9: 'X et al. (Year) addressed Y \cite{...}' bound to L3 in related
+    r"""F9: 'X et al. (Year) addressed Y \cite{...}' bound to L3 in related
     work is exactly what L3 semantics supports -> NOT overclaimed_weak."""
     sec = _sections(
         tmp_path,
         {
             "01_related.tex": (
-                "\section{Related Work}\n"
+                r"\section{Related Work}" "\n"
                 "% @claim:E3\n"
                 "Smith et al. (2023) addressed graph classification "
-                "\cite{smith2023}.\n"
+                r"\cite{smith2023}." "\n"
             )
         },
     )
@@ -620,30 +620,30 @@ def test_deixis_exemption_is_narrow(tmp_path):
         tmp_path,
         {
             "01_related.tex": (
-                "\section{Related Work}\n"
+                r"\section{Related Work}" "\n"
                 "% @claim:E3\n"
                 # deixis shape BUT a performance number -> still flagged
                 "Smith et al. (2023) studied graph classification and reached "
-                "0.95 accuracy \cite{smith2023}.\n"
+                r"0.95 accuracy \cite{smith2023}." "\n"
             ),
             "02_other.tex": (
-                "\section{Discussion}\n"
+                r"\section{Discussion}" "\n"
                 "% @claim:E3\n"
                 # categorical assertion, no deixis shape -> still flagged
-                "Graph classification is solved \cite{smith2023}.\n"
+                r"Graph classification is solved \cite{smith2023}." "\n"
             ),
             "03_method.tex": (
-                "\section{Method}\n"
+                r"\section{Method}" "\n"
                 "% @claim:E3\n"
                 # canonical shape but in a methods section -> still flagged
                 "Smith et al. (2023) addressed graph classification "
-                "\cite{smith2023}.\n"
+                r"\cite{smith2023}." "\n"
             ),
             "04_unbound.tex": (
-                "\section{Intro}\n"
+                r"\section{Intro}" "\n"
                 # canonical shape but unbound -> still flagged
                 "Smith et al. (2023) addressed graph classification "
-                "\cite{smith2023}.\n"
+                r"\cite{smith2023}." "\n"
             ),
         },
     )
@@ -661,3 +661,405 @@ def test_l1_hedged_still_weakened_after_deixis_fix(tmp_path):
     report = audit_strength_mismatch(sec, [E1])
     assert len(report["weakened_strong"]) == 1
     assert report["overclaimed_weak"] == []
+
+
+# ------------------------------------------------- Phase 0 regression tests
+
+
+def test_booktabs_table_block_binding_and_standalone_tables(tmp_path):
+    m = _materials(tmp_path)
+    (m / "res.csv").write_text(
+        "method,acc,f1\nours,0.934,0.881\nbase,0.850,0.800\n",
+        encoding="utf-8",
+    )
+    e_tab = {
+        "id": "ETAB",
+        "claim": "Table results.",
+        "origin": "material:res.csv#L2-L3",
+        "evidence_level": "L1",
+        "boundary": "any",
+        "conversions": ["round_2dp"],
+    }
+    tab_tex = (
+        "% @claim:ETAB\n"
+        "\\begin{table}[t]\n"
+        "  \\centering\n"
+        "  \\caption{Main results.}\n"
+        "  \\label{tab:main}\n"
+        "  \\begin{tabular}{lrr}\n"
+        "    \\toprule\n"
+        "    method & acc & f1 \\\\\n"
+        "    \\midrule\n"
+        "    ours & 0.93 & 0.88 \\\\\n"
+        "    base & 0.85 & 0.80 \\\\\n"
+        "    \\bottomrule\n"
+        "  \\end{tabular}\n"
+        "\\end{table}\n"
+    )
+    sec = _sections(tmp_path, {"04_exp.tex": "\\section{Experiments}\n" + tab_tex})
+    assert audit_numbers(sec, [e_tab], m) == []
+    report = audit_strength_mismatch(sec, [e_tab])
+    assert report["overclaimed_weak"] == []
+
+    # Fabricated cell inside table is still caught.
+    bad_sec = _sections(
+        tmp_path,
+        {"04_exp.tex": tab_tex.replace("0.88", "0.99")},
+    )
+    v_bad = audit_numbers(bad_sec, [e_tab], m)
+    assert any("0.99" in x for x in v_bad)
+
+    # Standalone tables/*.tex audited via tables_dir.
+    tab_dir = tmp_path / "tables"
+    tab_dir.mkdir()
+    (tab_dir / "t1.tex").write_text(tab_tex, encoding="utf-8")
+    sec_clean = _sections(tmp_path, {"04_exp.tex": "\\section{Experiments}\nSee Table~\\ref{tab:main}.\n"})
+    assert audit_numbers(sec_clean, [e_tab], m, tables_dir=tab_dir) == []
+
+
+def test_inline_data_math_audited_while_symbolic_math_stays_excluded(tmp_path):
+    m = _materials(tmp_path)
+    (m / "stats.csv").write_text(
+        "acc,speedup,delta,std\n0.934,1.8,12.4,0.3\n",
+        encoding="utf-8",
+    )
+    ec = {
+        "id": "EC",
+        "claim": "Metrics.",
+        "origin": "material:stats.csv#L2",
+        "evidence_level": "L1",
+        "boundary": "any",
+        "conversions": ["x100_percent"],
+    }
+    good = (
+        "% @claim:EC\n"
+        "Achieves $93.4\\%$ accuracy at $1.8\\times$ speedup with $+12.4$ pts and $4.2 \\pm 0.3\\%$ gain.\n"
+    )
+    # 4.2 is fabricated; 93.4, 1.8, +12.4, 0.3 are in span.
+    sec = _sections(tmp_path, {"03_res.tex": good})
+    v = audit_numbers(sec, [ec], m)
+    assert len(v) == 1 and "4.2" in v[0]
+
+    # When 4.2 is fixed to 12.4 and symbolic math is present, 0 violations.
+    (m / "stats2.csv").write_text(
+        "acc,speedup,delta,mean,std\n0.934,1.8,12.4,4.2,0.3\n",
+        encoding="utf-8",
+    )
+    ec2 = {**ec, "origin": "material:stats2.csv#L2"}
+    ok_tex = (
+        "% @claim:EC\n"
+        "Achieves $93.4\\%$ accuracy at $1.8\\times$ speedup with $+12.4$ pts and $\\textbf{4.2} \\pm 0.3\\%$, "
+        "where $\\alpha=.57$, $1e^{-3}$, \\(x_1 + 2 = 3\\), and \\[y_0 = 1\\].\n"
+    )
+    sec2 = _sections(tmp_path, {"03_res.tex": ok_tex})
+    assert audit_numbers(sec2, [ec2], m) == []
+
+    # Unmarked fabricated $99.9\%$ inline math MUST NOT escape!
+    fab_sec = _sections(tmp_path, {"03_res.tex": "Our model achieves $99.9\\%$ accuracy.\n"})
+    v_fab = audit_numbers(fab_sec, [ec2], m)
+    assert len(v_fab) == 1 and "99.9" in v_fab[0]
+
+
+def test_unit_suffixed_numbers_audited(tmp_path):
+    m = _materials(tmp_path)
+    (m / "hw.csv").write_text("params,speed,mem,fps,lat,samples\n70B,20x,16GB,120FPS,100ms,18K\n", encoding="utf-8")
+    ehw = {
+        "id": "EHW",
+        "claim": "Hardware metrics.",
+        "origin": "material:hw.csv#L2",
+        "evidence_level": "L1",
+        "boundary": "any",
+    }
+    sec = _sections(
+        tmp_path,
+        {
+            "03_res.tex": (
+                "% @claim:EHW\n"
+                "Our 70B model runs 20x faster in 16GB at 120FPS (100ms) on 18K samples.\n"
+                "Fabricated 999GB memory usage.\n"
+            )
+        },
+    )
+    v = audit_numbers(sec, [ehw], m)
+    assert len(v) == 1 and "999" in v[0]
+
+
+def test_latex_commands_identifiers_ranges_and_enumerations_no_false_positive(tmp_path):
+    m = _materials(tmp_path)
+    (m / "rng.csv").write_text("lo,hi\n4,7\n", encoding="utf-8")
+    er = {
+        "id": "ER",
+        "claim": "Range.",
+        "origin": "material:rng.csv#L2",
+        "evidence_level": "L1",
+        "boundary": "any",
+    }
+    tex = (
+        "\\section{Experiments}\n"
+        "\\begin{figure}[t]\n"
+        "  \\centering\n"
+        "  \\includegraphics[width=0.8\\linewidth]{figures/fig-1.pdf}\n"
+        "  \\caption{Training convergence.}\n"
+        "  \\label{fig:conv}\n"
+        "\\end{figure}\n"
+        "\\vspace{0.5em}\n"
+        "As shown in \\cref{fig:conv} and \\autoref{tab:main}, we use ResNet-50, CIFAR-100, GPT-4, and Llama-3.1.\n"
+        "Our contributions are: (1) an encoder; (2) an analysis; (3) a benchmark.\n"
+        "% @claim:ER\n"
+        "As shown in Tab.~\\ref{tab:main}, our method gains 4--7 points.\n"
+    )
+    sec = _sections(tmp_path, {"03_res.tex": tex})
+    assert audit_numbers(sec, [er], m) == []
+
+
+def test_chained_conversions_and_numerical_equivalence(tmp_path):
+    m = _materials(tmp_path)
+    (m / "prec.csv").write_text("a,b,c\n0.9341,0.850,0.5\n", encoding="utf-8")
+    ep = {
+        "id": "EP",
+        "claim": "Precision metrics.",
+        "origin": "material:prec.csv#L2",
+        "evidence_level": "L1",
+        "boundary": "any",
+        "conversions": ["x100_percent", "round_1dp", "round_0dp", "round_3dp"],
+    }
+    sec = _sections(
+        tmp_path,
+        {
+            "a.tex": "% @claim:EP\nAccuracy is 93.4%, baseline is 0.85, rounded is 0.934 and 1.\n",
+            "b.tex": "% @claim:EP\nDirection flip is -0.5.\n",
+        },
+    )
+    v = audit_numbers(sec, [ep], m)
+    assert len(v) == 1 and "b.tex" in v[0] and "-0.5" in v[0]
+
+
+def test_chinese_sentence_splitting_prevents_silent_binding(tmp_path):
+    m = _materials(tmp_path)
+    sec = _sections(
+        tmp_path,
+        {
+            "03_res.tex": (
+                "% @claim:E1\n"
+                "第一句取得 0.93 准确率。第二句编造 99.9 指标。\n"
+            )
+        },
+    )
+    v = audit_numbers(sec, [E1], m)
+    assert len(v) == 1 and "99.9" in v[0] and "orphan" in v[0].lower()
+
+
+def test_l3_whitelist_blocks_approach_experiments_abstract(tmp_path):
+    m = _materials(tmp_path)
+    sec = _sections(
+        tmp_path,
+        {
+            "01_abs.tex": "\\section{Abstract}\n% @claim:E3\nWe extend \\cite{smith2023}.\n",
+            "02_related.tex": "\\section{Background}\n% @claim:E3\nSmith et al. (2023) addressed graphs \\cite{smith2023}.\n",
+            "03_approach.tex": "\\section{Approach}\n% @claim:E3\nWe follow \\cite{smith2023}.\n",
+            "04_exp.tex": "\\section{Experiments}\n% @claim:E3\nEvaluated like \\cite{smith2023}.\n",
+        },
+    )
+    v = audit_numbers(sec, [E3], m)
+    flagged_files = {item.split(":")[0] for item in v}
+    assert flagged_files == {"01_abs.tex", "03_approach.tex", "04_exp.tex"}
+
+
+def test_l0_prose_proper_noun_check_and_strength_exclusion(tmp_path):
+    m = _materials(tmp_path)
+    k1 = {
+        "id": "K1",
+        "claim": "Neural networks are widely used.",
+        "origin": "field_common",
+        "evidence_level": "L0",
+        "boundary": "directional",
+    }
+    sec_ok = _sections(tmp_path, {"01_intro.tex": "% @claim:K1\nNeural networks are widely used.\n"})
+    assert audit_numbers(sec_ok, [k1], m) == []
+    assert audit_strength_mismatch(sec_ok, [k1])["overclaimed_weak"] == []
+
+    sec_bad = _sections(tmp_path, {"01_intro.tex": "% @claim:K1\nImageNet benchmarks are widely used.\n"})
+    v = audit_numbers(sec_bad, [k1], m)
+    assert len(v) == 1 and "ImageNet" in v[0]
+
+
+def test_bib_cross_check_catches_unledgered_and_unbound_l3(tmp_path):
+    m = _materials(tmp_path)
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        "@inproceedings{smith2023, title={G}, author={Smith}, year={2023}}\n"
+        "@article{rogue2024, title={R}, author={Rogue}, year={2024}}\n",
+        encoding="utf-8",
+    )
+    sec = _sections(
+        tmp_path,
+        {
+            "02_related.tex": "\\section{Related Work}\n% @claim:E3\nSmith et al. (2023) addressed graphs \\cite{smith2023}.\n",
+            "03_method.tex": "\\section{Approach}\nWe borrow \\cite{smith2023} and \\cite{rogue2024} and \\cite{ghost2025}.\n",
+        },
+    )
+    v = audit_numbers(sec, [E3], m, bib_path=bib)
+    assert any("rogue2024" in x and "unledgered" in x for x in v)
+    assert any("ghost2025" in x and "not found" in x for x in v)
+    assert any("smith2023" in x and "L3-only" in x for x in v)
+
+    ledger = _ledger(tmp_path, [E3])
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), str(ledger), "--materials", str(m), "--sections", str(sec), "--bib", str(bib)],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 1
+
+
+def test_canonical_l3_deixis_supports_single_dual_and_cvpr_styles(tmp_path):
+    e_s = {**E3, "id": "ES", "origin": "retrieval:smith2023"}
+    e_d = {**E3, "id": "ED", "origin": "retrieval:sj2023"}
+    sec = _sections(
+        tmp_path,
+        {
+            "02_related.tex": (
+                "\\section{Related Work}\n"
+                "% @claim:ES\n"
+                "Smith (2023) studied graph classification \\cite{smith2023}.\n\n"
+                "% @claim:ED\n"
+                "Smith and Jones (2023) proposed graph kernels \\cite{sj2023}.\n\n"
+                "% @claim:ES\n"
+                "Smith et al.~\\cite{smith2023} addressed graph classification.\n"
+            ),
+        },
+    )
+    report = audit_strength_mismatch(sec, [e_s, e_d])
+    assert report["overclaimed_weak"] == []
+    # Mismatched citekey between @claim and prose must still be flagged.
+    sec_mis = _sections(
+        tmp_path,
+        {
+            "02_related.tex": (
+                "\\section{Related Work}\n"
+                "% @claim:ES\n"
+                "Smith (2023) studied graph classification \\cite{sj2023}.\n"
+            )
+        },
+    )
+    assert len(audit_strength_mismatch(sec_mis, [e_s, e_d])["overclaimed_weak"]) == 1
+
+
+# ------------------------------------------------- Phase 1 regression tests
+
+
+def test_structural_signposts_filtered_from_overclaimed_weak(tmp_path):
+    sec = _sections(
+        tmp_path,
+        {
+            "01_intro.tex": (
+                "In this section, we describe our formulation.\n"
+                "The remainder of this paper is organized as follows.\n"
+                "Section~\\ref{sec:method} presents the architecture.\n"
+                "Figure~\\ref{fig:overview} illustrates the pipeline.\n"
+                "Our method proves universal optimality.\n"
+            )
+        },
+    )
+    report = audit_strength_mismatch(sec, [])
+    assert len(report["overclaimed_weak"]) == 1
+    assert "proves universal optimality" in report["overclaimed_weak"][0]["sentence"]
+
+
+def test_dispositions_persistence_suppresses_and_resurfaces_on_edit(tmp_path):
+    m = _materials(tmp_path)
+    ledger = _ledger(tmp_path, [E1])
+    sec = _sections(
+        tmp_path,
+        {"03_results.tex": "% @claim:E1\nOur model may reach 0.93 accuracy.\n"},
+    )
+    r1 = audit_strength_mismatch(sec, [E1])
+    assert len(r1["weakened_strong"]) == 1
+    fp = r1["weakened_strong"][0]["fingerprint"]
+    assert fp
+
+    disp = tmp_path / "dispositions.json"
+    # Incomplete disposition (missing rationale) does NOT suppress.
+    disp.write_text(json.dumps([{"fingerprint": fp, "decision": "keep"}]), encoding="utf-8")
+    r_incomplete = audit_strength_mismatch(sec, [E1], dispositions_path=disp)
+    assert len(r_incomplete["weakened_strong"]) == 1
+
+    # Complete disposition suppresses the item and records fingerprint.
+    disp.write_text(
+        json.dumps([{"fingerprint": fp, "decision": "keep", "rationale": "scope uncertainty"}]),
+        encoding="utf-8",
+    )
+    r_suppressed = audit_strength_mismatch(sec, [E1], dispositions_path=disp)
+    assert r_suppressed["weakened_strong"] == []
+    assert r_suppressed["disposed_fingerprints"] == [fp]
+
+    # CLI works cleanly with --dispositions.
+    cli_ok = subprocess.run(
+        [
+            sys.executable, str(SCRIPT), str(ledger),
+            "--materials", str(m), "--sections", str(sec),
+            "--strength-report", "--dispositions", str(disp),
+        ],
+        capture_output=True, text=True,
+    )
+    assert cli_ok.returncode == 0
+    assert fp in cli_ok.stdout
+
+    # Editing the sentence invalidates the fingerprint -> resurfaces.
+    (sec / "03_results.tex").write_text(
+        "% @claim:E1\nOur approach could reach 0.93 accuracy.\n", encoding="utf-8"
+    )
+    r_resurfaced = audit_strength_mismatch(sec, [E1], dispositions_path=disp)
+    assert len(r_resurfaced["weakened_strong"]) == 1
+    assert r_resurfaced["weakened_strong"][0]["fingerprint"] != fp
+
+
+def test_audit_outline_validates_keys_claims_and_viz_plan(tmp_path):
+    m = _materials(tmp_path)
+    ledger = _ledger(tmp_path, [E1])
+    good_outline = tmp_path / "outline.json"
+    good_outline.write_text(
+        json.dumps({
+            "title": "Real Paper",
+            "venue": "CVPR 2025",
+            "metadata": {"authors": [{"name": "Alice Smith"}], "paper_id": "12"},
+            "sections": [{"id": "res", "kind": "experiments", "claims": ["E1"], "purpose": "Report."}],
+            "lit_strategy": {"queries": ["graph learning"], "must_contain": ["GNN"]},
+            "viz_plan": {"figures": [{"id": "fig1", "source_section": "res", "kind": "plot", "data_ref": "materials/results.csv"}]},
+        }),
+        encoding="utf-8",
+    )
+    assert ledger_audit.audit_outline(good_outline, claims=[E1], materials_dir=m) == []
+
+    r_ok = subprocess.run(
+        [sys.executable, str(SCRIPT), str(ledger), "--materials", str(m), "--outline", str(good_outline)],
+        capture_output=True, text=True,
+    )
+    assert r_ok.returncode == 0
+
+    bad_outline = tmp_path / "bad_outline.json"
+    bad_outline.write_text(
+        json.dumps({
+            "title": "Real Paper",
+            "venue": "CVPR 2025",
+            "sections": [
+                {"id": "s1", "kind": "intro", "claims": ["MISSING_CLAIM"], "purpose": "Intro."},
+                {"id": "s1", "kind": "method", "claims": [], "purpose": "Dup id."},
+            ],
+            "lit_strategy": {"queries": [], "must_contain": []},
+            "viz_plan": {"figures": [{"id": "f1", "source_section": "ghost_sec", "kind": "plot", "data_ref": "materials/missing.csv"}]},
+        }),
+        encoding="utf-8",
+    )
+    v = ledger_audit.audit_outline(bad_outline, claims=[E1], materials_dir=m)
+    assert any("MISSING_CLAIM" in x for x in v)
+    assert any("duplicate section id" in x for x in v)
+    assert any("lit_strategy.queries" in x for x in v)
+    assert any("ghost_sec" in x for x in v)
+    assert any("missing.csv" in x for x in v)
+
+    r_bad = subprocess.run(
+        [sys.executable, str(SCRIPT), str(ledger), "--materials", str(m), "--outline", str(bad_outline)],
+        capture_output=True, text=True,
+    )
+    assert r_bad.returncode == 1

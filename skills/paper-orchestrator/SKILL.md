@@ -67,14 +67,20 @@ compatibility: claude-code codex antigravity
    `[n] → \cite{key}`）；map 由阶段 3 台账自动生成，规则见
    `references/stage-playbook.md`。
 5. **阶段 5 图表规则。** 稿内图只交 `.pdf` 矢量（PNG 仅预览，绝不
-   `\includegraphics`）；表格走 `log_to_table` 产 booktabs 块。
-6. **阶段 6 装配规则。** 套真实会议模板接线（标记路径或无标记真实模板
-   路径），剥离 `% @claim:` 注释行；检测到 TeX 工具链就编译验证，
-   检测不到（`compiled=None`）只交付可编译源码包并在检查点说明。
+   `\includegraphics`，compose 拷贝时自动跳过伴随 `.png` 预览）；表格走
+   `log_to_table` 产 booktabs 块，可粘贴进 `sections/*.tex` 或放 `tables/` 传
+   `--tables` 装配。
+6. **阶段 6/7 单真源与装配规则。** `sections/*.tex`、`tables/*.tex` 与
+   `outline.json` 是唯一可编辑真源；`manuscript/` 是 `latex_compose.py` 生成的
+   纯构建产物（禁止手工改 `manuscript/`）。阶段 6 接线按标记或无标记路径，
+   剥离 `% @claim:` 注释行，通过 `--outline outline.json` 注入标题/作者/paperID
+   并自动同步 `\bibliography`；编译同时校验 `.log`/`.blg` 无致命错误或未定义引用，
+   检测不到 TeX（`compiled=None`）只交付源码包并在检查点说明。
 7. **阶段 7 收尾润色 XOR（判定条件写死）。** 线稿有中译英残留/中式英语
    → paper-polish；纯英文去 AI 味 → academic-humanizer。**禁止两者叠加
-   调用。** 强度错配审计（`--strength-report`）输出非空时，必须逐条
-   处置后才能检查点签字。
+   调用。** 润色与修订一律改写 `sections/*.tex`（保留 `% @claim:`），重跑
+   `ledger_audit.py --strength-report` 把强度错配处置清零后，再重跑
+   `latex_compose.py` 刷新终稿 `manuscript/` 才能检查点签字。
 8. **证据强度–措辞匹配审计取代机械 hedge 词频预算。** 收尾逐主张对照：
    有 L1/L2 强证据却弱化表达 → 改肯定（不确定性真实则改台账/缩小主张）；
    证据 L3/无台账却肯定断言 → 改台账或缩小主张。**绝不为了压词频把缺证据
@@ -95,9 +101,16 @@ compatibility: claude-code codex antigravity
 | 冲突 | 谁赢 | 例子 |
 |---|---|---|
 | 流程/顺序/检查点 | orchestrator | "不许跳步"压过"某 skill 想自己润色" |
+| 流程元数据标记 | orchestrator | 阶段 4 允许并强制 `% @claim:<id>` 行注释（阶段 6 自动剥离） |
 | 文字风格/措辞 | 该阶段唯一拥有者 | 阶段 4 paper-writer 赢，评审建议不直接改稿 |
+| 声音包刻度 vs 泛化禁词/保守不改强 | `voice-calibration.md` | L1 强证据支持直陈或改肯定，不受保守不改强或泛化禁词表误杀 |
 | 事实/引用资格 | 验证阶梯（最严者赢） | autorater 夸了但台账没有 → 不成立 |
 | 评审结论 | pre-submission-reviewer | orchestrator 不自行加判 |
+
+**三条流水线局部覆盖条款**（仅在流水线会话内生效，不改变兄弟 skill 独立触发时的规则）：
+1. **流程元数据覆盖**：阶段 4 的 `% @claim:<id>` 行注释是台账硬契约（阶段 6 装配自动剥离，终稿零残留），在流水线内优先于 `paper-writer` 的「无内嵌溯源标记」规则；
+2. **Abstract 最终定稿**：阶段 4 先写正文主干（Methods / Experiments / Related Work / Introduction），**Abstract 留待实验结果与阶段 5 图表定型后再定稿**（与 `paper-writer` 一致，防止提前编数与返工）；
+3. **声音包刻度优先**：阶段 4 起草与阶段 7 错配处置/润色时，`references/voice-calibration.md` 的证据刻度尺优先于兄弟 skill（`paper-polish` / `academic-humanizer` / `pre-submission-reviewer`）的泛化禁词表与「不把已 hedge 句改强」保守条款——有 L1 强证据支持时允许改肯定、保留语料许可的精确限定（如 `To our knowledge`），无强证据时才按阶梯降强度或缩小主张。
 
 ## 七阶段协议
 
@@ -129,10 +142,10 @@ compatibility: claude-code codex antigravity
   核查**（硬规则 2）→ BibTeX 装配 → 按大纲分配引用。
 - **调用谁**：deep-research 检索纪律 + paper-writer 验证阶梯 +
   `scripts/lit_search.py`：
-  `python scripts/lit_search.py --query "<query>" --limit 20 --out refs.jsonl --bib refs.bib`
-  （缺字段走 Crossref→arXiv 回退，题名相似度不足即跳过防错配；仍缺的
+  `python scripts/lit_search.py (--query "<query>" | --queries-from outline.json) --limit 20 --out refs.jsonl --bib refs.bib [--source auto --existing-bib prev.bib --rank --emit-ledger-draft claims_refs.jsonl --emit-numeric-map numeric_map.json]`
+  （缺字段走 Crossref→arXiv 回退并补摘要，题名相似度不足即跳过防错配；仍缺的
   `needs_manual` 项走宿主联网检索兜底；无 API key 时公开层限流，
-  行内带 `rate: public-tier` 标记）。
+  行内带 `rate: public-tier` 标记，L3 默认屏蔽 AI `tldr`）。
 - **产出入账**：`refs.bib` + `refs.jsonl` + 台账增补 `retrieval:<citekey>`
   行（带 `evidence_level`：有 abstract=L2，仅题录=L3）。citekey 由脚本
   确定性生成，台账与 bib 共用同一套键。作者自带的参考文献同样入账：
@@ -142,13 +155,14 @@ compatibility: claude-code codex antigravity
 
 ### 阶段 4｜分节成稿
 
-- **做什么**：按 outline 逐节写作，Abstract/Intro 优先。引用按硬规则 4；
+- **做什么**：按 outline 逐节写作，先写正文主干（Methods / Experiments / Related Work / Introduction），
+  Abstract 留待实验结果与阶段 5 图表定型后定稿。引用按硬规则 4；
   每个主张句上方一行 `% @claim:<id>[,<id>...]` 绑定台账。
 - **声音模型**：起草按 `references/voice-calibration.md` 的刻度尺
   （断言强度 = 离证据的距离）校准语气；它是倾向参考，不是句型模板。
 - **调用谁**：paper-writer（各节）、intro-drafter（Introduction）。
 - **产出入账**：`sections/*.tex`（文件名序=装配序）+ 台账增补。
-  跑 `python scripts/ledger_audit.py claims.jsonl --materials materials/ --sections sections/`，
+  跑 `python scripts/ledger_audit.py claims.jsonl --materials materials/ [--outline outline.json] --sections sections/ [--tables tables/ --bib refs.bib]`，
   违规清零才交检查点。
 - **停下问什么**："各节文本与主张边界认可？审计违规已清零？"
 
@@ -171,7 +185,7 @@ compatibility: claude-code codex antigravity
   接线标记 `% >>> paper-orchestrator: sections`；真实模板无标记时按
   `references/vendor-notices.md` 四的结构备忘替换示例正文区。
 - **调用谁**：`scripts/latex_compose.py`：
-  `python scripts/latex_compose.py --template <模板目录> --sections sections/ --bib refs.bib --figures figures/ --out manuscript/ [--numeric-map map.json]`
+  `python scripts/latex_compose.py --template <模板目录> --sections sections/ --bib refs.bib --figures figures/ --out manuscript/ [--tables tables/] [--outline outline.json] [--numeric-map map.json]`
 - **产出入账**：`manuscript/` 可编译包 + `compose_report.json`。
   `missing_citations`/`missing_files`/`raster_refs` 非空 → 修复重跑；
   `compiled=None`（无 TeX）→ 交付源码包并在检查点说明。
@@ -179,16 +193,17 @@ compatibility: claude-code codex antigravity
 
 ### 阶段 7｜自评审
 
-- **做什么**：五维评审 + 移植版 autorater 打分（**参考分，不做 gate**，
-  指令模板见 `references/reflection-prompts.md`）+ **独立上下文抽查复核**
-  （硬规则 2）+ 强度错配处置 + 收尾润色 XOR（硬规则 7）。
+- **做什么**：严格按五步顺序执行（详见 `references/stage-playbook.md`）：
+  `7.1 审稿与独立核查（pre-submission-reviewer + autorater score.md 参考分 + Rung 1/2 抽查） → 7.2 逻辑修订与错配处置（改写落 sections/*.tex，记录 dispositions.json） → 7.3 XOR 收尾润色（作用于 sections/*.tex） → 7.4 重审计与重装配（刷新 manuscript/） → 7.5 终稿签字`。
+  autorater 参考分不做 gate，模板见 `references/reflection-prompts.md`。
 - **调用谁**：pre-submission-reviewer（评审结论唯一拥有者）；
-  paper-polish **XOR** academic-humanizer；核查按验证阶梯。
-  审计：`python scripts/ledger_audit.py claims.jsonl --materials materials/ --sections sections/ --strength-report`。
-  错配报告非空 → 逐条处置（改肯定 / 改台账 / 缩小主张，作者裁决）后
-  才能签字。处置方向按 `references/voice-calibration.md` 的刻度尺校准；
+  paper-polish **XOR** academic-humanizer（作用于 `sections/*.tex`）；核查按验证阶梯。
+  审计：`python scripts/ledger_audit.py claims.jsonl --materials materials/ [--outline outline.json] --sections sections/ [--tables tables/ --bib refs.bib] --strength-report [--dispositions dispositions.json]`。
+  错配报告非空 → 逐条处置（改肯定 / 改台账 / 缩小主张，作者裁决，写入 `dispositions.json`）后，
+  重跑 `latex_compose.py` 刷新 `manuscript/` 方可签字。处置方向按
+  `references/voice-calibration.md` 的刻度尺校准；
   诚实前瞻句不是 hedge，不得被当作防御语言删除。
-- **产出入账**：`review.md` + `score.md` + 终稿 tex（更新 `manuscript/`）。
+- **产出入账**：`review.md` + `score.md` + 终稿 tex（重跑装配刷新 `manuscript/`）。
 - **停下问什么**："评审意见处置认可？错配清单已处置？终稿签字？"
 
 ## 单阶段进入/退出协议
@@ -215,7 +230,7 @@ matplotlib、requests（ledger_audit 与 latex_compose 仅 stdlib）。
 - `references/voice-calibration.md` — 语料校准的声音模型（8 篇最佳论文
   倾向 + 反过拟合声明 + 错配处置指引），阶段 4 起草与阶段 7 处置用。
 - `references/outline-schema.md` — outline/台账格式与 ledger_audit 语义。
-- `references/reflection-prompts.md` — 上游 reflection/autorater 提示词存档。
+- `references/reflection-prompts.md` — 运行时 autorater 参考评分模板（精简无冲突版；完整上游提示词存档见仓库根目录 `docs/upstream-prompts-archive.md`）。
 - `references/plot-style-notes.md` — 绘图风格依据与确定性默认。
 - `references/vendor-notices.md` — 上游出处、分歧记录、cvpr2025 结构备忘。
 

@@ -53,15 +53,20 @@ Use python matplotlib to generate a statistical plot based on the following deta
 `xtick/ytick.labelsize 9`、`legend.fontsize 9`；`pdf.fonttype 42`
 （TrueType 嵌入，避免 Type 3 位图字体）。
 
-版面——`axes.spines.top/right False`（去顶右边框）；图例
+版面与双编码——`axes.spines.top/right False`（去顶右边框）；图例
 `frameon False`、`loc best`（最小重叠位，不压数据）；
 figsize 折线 4.0×3.0 in、柱状 4.8×3.2 in（单栏宽度量级）；
-`tight_layout`。折线 `linewidth 1.6` + 圆点 marker（size 3）；
-柱状为分组柱（组宽 0.8/n），x 刻度抽稀到 ≤10 个、旋转 45° 右对齐，
-保证 ≥9pt 下不糊。
+`tight_layout`。折线采用色盲安全色 + `LINESTYLES` + `MARKERS` 双编码
+（`linewidth 1.6`，点数 `>40` 时自动启用 `markevery` 防糊），可选 `yerr_cols`
+绘误差阴影带、`labels` 自定义图例名及 `xscale`/`yscale`/`xlim`/`ylim`；
+柱状为分组柱（组宽 0.8/n），同步轮转 `HATCHES` 图案填充（带 `#000000`
+边线）与可选 `yerr_cols` 误差棒，x 刻度抽稀到 ≤10 个、旋转 45° 右对齐，
+保证 ≥9pt 下不糊。若正文 `\caption{...}` 已给出完整图题，spec 可省略
+`title` 以免与图注重复。
 
-确定性——同输入两次运行字节一致（PDF CreationDate 抑制，无时间戳）；
-缺列报 ColumnError 并列出实际列名，不静默画错。
+确定性与依赖——同输入两次运行字节一致（PDF CreationDate 抑制，无时间戳）；
+缺列报 ColumnError 并列出实际列名，不静默画错；`--mode table` 延迟跳过
+`matplotlib` 导入，可在纯 stdlib 环境运行。
 
 ## 3. 交付规则（阶段 5 → 阶段 6）
 
@@ -71,7 +76,9 @@ figsize 折线 4.0×3.0 in、柱状 4.8×3.2 in（单栏宽度量级）；
 - **表格走 `log_to_table`**（`--mode table`）：完整 booktabs 块
   （`\toprule/\midrule/\bottomrule`），数值列右对齐、文本列左对齐，
   单元格 LaTeX 转义；`round` 字典控制小数位；caption/label 按原始
-  LaTeX 处理。禁止手抄日志数字进表格——手抄即绕过数值审计。
+  LaTeX 处理；支持可选 `star: true`（`table*` 跨双栏）、`headers`（列展示名）
+  与 `bold_best`（`{列: "max"|"min"}` 最优值加粗 `\textbf{...}`）。
+  禁止手抄日志数字进表格——手抄即绕过数值审计。
 - 每张图/表对应的数据主张入台账（L1，origin 指向日志行区间）；
   生成 spec JSON 存 `specs/` 存档，保证可复现。
 

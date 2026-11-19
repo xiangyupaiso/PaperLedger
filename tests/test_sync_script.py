@@ -57,16 +57,24 @@ def test_sync_script_selftest():
 def test_manifest_contract():
     assert MANIFEST.is_file(), f"missing {MANIFEST}"
     m = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert m["source"] == "~/.claude/skills"
-    assert m["targets"] == ["~/.codex/skills", "~/.gemini/config/skills"]
+    assert m["source"] == "./skills"
+    assert m["targets"] == [
+        "~/.claude/skills",
+        "~/.codex/skills",
+        "~/.gemini/config/skills",
+    ]
     assert m["optional_targets"] == ["~/.agents/skills"]
-    # The opt-in flag must be explained next to the optional root.
+    # The opt-in flags must be explained next to the optional root.
+    assert "--include-agents-root" in m["_comment_optional_targets"]
     assert "-IncludeAgentsRoot" in m["_comment_optional_targets"]
+    src_root = MANIFEST.parent.parent / m["source"]
+    assert src_root.is_dir(), f"missing repo skill source root {src_root}"
     skills = m["skills"]
     assert len(skills) == 10
     by_cat = {}
     for entry in skills:
         assert set(entry) == {"name", "category"}
+        assert (src_root / entry["name"] / "SKILL.md").is_file()
         by_cat.setdefault(entry["category"], set()).add(entry["name"])
     assert by_cat == {
         "writing": WRITING,

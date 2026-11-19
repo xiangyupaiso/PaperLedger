@@ -246,9 +246,9 @@ def test_playbook_stage7_forward_step_and_measured_result_guard():
 
 
 def test_reflection_prompts_archive():
-    doc = (REFS / "reflection-prompts.md").read_text(encoding="utf-8")
-    assert VENDOR_COMMIT in doc
-    assert "Apache" in doc  # prompt archives KEEP Apache attribution
+    archive = (REPO / "docs" / "upstream-prompts-archive.md").read_text(encoding="utf-8")
+    assert VENDOR_COMMIT in archive
+    assert "Apache" in archive  # prompt archives KEEP Apache attribution
     # provenance: every archived upstream file is named
     for upstream in (
         "methods/prompts/content_refinement_agent.py",
@@ -256,7 +256,7 @@ def test_reflection_prompts_archive():
         "autoraters/prompts/lit_review_quality_prompts.py",
         "autoraters/prompts/sxs_quality_prompts.py",
     ):
-        assert upstream in doc, f"missing provenance for {upstream}"
+        assert upstream in archive, f"missing provenance for {upstream}"
     # characteristic text of each archived prompt survived
     for marker in (
         "REFLECTION ITERATION",
@@ -266,10 +266,20 @@ def test_reflection_prompts_archive():
         "Side-by-Side",
         "Overall",
     ):
-        assert marker in doc, f"archive lost prompt text: {marker}"
-    # round 1 hardening: the limitation-sentence note carries an explicit
-    # instantiation instruction next to the fenced block
-    assert "实例化本模板时删除或以套件规则替换该句" in doc
+        assert marker in archive, f"archive lost prompt text: {marker}"
+    assert "实例化本模板时删除或以套件规则替换该句" in archive
+
+    # Runtime reflection-prompts.md is slim and conflict-free
+    runtime_doc = (REFS / "reflection-prompts.md").read_text(encoding="utf-8")
+    assert len(runtime_doc.splitlines()) < 150
+    for marker in (VENDOR_COMMIT, "Apache", "docs/upstream-prompts-archive.md", "Overall", "score.md", "参考分"):
+        assert marker in runtime_doc, f"runtime reflection-prompts missing: {marker}"
+    for conflicting in (
+        "Never explicitly state a limitation",
+        "IMPROVE the reviewer score",
+        "Always provide the FULL LaTeX code",
+    ):
+        assert conflicting not in runtime_doc, f"conflicting prompt leaked into runtime: {conflicting}"
 
 
 def test_plot_style_notes_filled():
@@ -438,3 +448,25 @@ def test_playbook_fix_wave_seams():
     # F7: re-run ledger_audit --strength-report AFTER polish, BEFORE sign-off
     assert "润色之后、终稿签字之前" in doc
     assert "重跑" in doc
+
+
+def test_conflict_overrides_and_abstract_last_settled():
+    skill_text = _text()
+    rules_text = (REFS / "voice-rules.md").read_text(encoding="utf-8")
+    playbook_text = (REFS / "stage-playbook.md").read_text(encoding="utf-8")
+    for doc in (skill_text, rules_text):
+        assert "三条流水线局部覆盖条款" in doc
+        assert "% @claim:" in doc
+        assert "Abstract 留待实验结果与阶段 5 图表定型后" in doc
+        assert "声音包刻度优先" in doc and "voice-calibration.md" in doc
+    assert "Abstract/Intro 优先" not in skill_text
+    assert "Abstract/Intro 优先" not in playbook_text
+
+
+def test_stage7_five_step_order_locked():
+    skill_text = _text()
+    playbook_text = (REFS / "stage-playbook.md").read_text(encoding="utf-8")
+    steps = ("7.1", "7.2", "7.3", "7.4", "7.5")
+    for doc in (skill_text, playbook_text):
+        positions = [doc.index(s) for s in steps]
+        assert positions == sorted(positions), f"stage 7 steps out of order: {positions}"

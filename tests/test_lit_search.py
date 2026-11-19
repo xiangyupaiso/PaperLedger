@@ -446,3 +446,254 @@ def test_cli_bib_write_branch(monkeypatch, tmp_path):
     # the JSONL row and the bib entry share the same citekey
     row = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
     assert row["citekey"] == keys[0]
+
+
+# --- 13. Phase 1 tests ------------------------------------------------------
+
+
+def test_bibtex_conference_uses_inproceedings_and_journal_uses_article():
+    conf_p = make_paper(venue="CVPR 2024", externalIds={"DOI": "10.1/c", "ArXiv": None})
+    jour_p = make_paper(venue="Nature Machine Intelligence", externalIds={"DOI": "10.1/j", "ArXiv": None})
+    conf_bib = lit_search.build_bibtex(conf_p)
+    jour_bib = lit_search.build_bibtex(jour_p)
+    assert conf_bib.startswith("@inproceedings{")
+    assert "booktitle = {CVPR 2024}" in conf_bib
+    assert jour_bib.startswith("@article{")
+    assert "journal = {Nature Machine Intelligence}" in jour_bib
+
+
+def test_arxiv_https_quote_clean_and_summary_backfill(monkeypatch):
+    seen = {}
+    arxiv_with_summary = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<feed xmlns="http://www.w3.org/2005/Atom">'
+        "<entry>"
+        "<id>https://arxiv.org/abs/2402.09999v2</id>"
+        '<title>Quoted "Method" Analysis</title>'
+        "<summary>  We analyze quoted methods empirically.  </summary>"
+        "<published>2024-02-15T00:00:00Z</published>"
+        "<author><name>Jane Doe</name></author>"
+        "</entry>"
+        "</feed>"
+    )
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        seen["url"] = url
+        seen["params"] = params
+        if "crossref" in url:
+            return FakeResponse(200, CROSSREF_EMPTY)
+        return FakeResponse(200, text=arxiv_with_summary)
+
+    monkeypatch.setattr(lit_search.requests, "get", fake_get)
+    l3_row = make_paper(
+        title='Quoted "Method" Analysis',
+        abstract=None,
+        year=None,
+        authors=[],
+        externalIds={"DOI": None, "ArXiv": None},
+    )
+    out = lit_search.enrich_fallback([l3_row])[0]
+    assert seen["url"].startswith("https://")
+    assert '"' not in seen["params"]["search_query"].replace('ti:"', "").rstrip('"')
+    assert out["abstract"] == "We analyze quoted methods empirically."
+    assert out["year"] == 2024
+    assert out["externalIds"]["ArXiv"] == "2402.09999"
+    assert "needs_manual" not in out
+
+
+def test_queries_from_outline_dedupes_and_ranks(monkeypatch, tmp_path):
+    p_a = make_paper(
+        paperId="p1",
+        title="Graph Neural Networks Survey",
+        abstract="graph neural networks",
+        externalIds={"DOI": "10.1/p1", "ArXiv": None},
+    )
+    p_b = make_paper(
+        paperId="p2",
+        title="Unrelated Storage Paper",
+        abstract="disk arrays",
+        externalIds={"DOI": "10.1/p2", "ArXiv": None},
+    )
+    p_a_dup = make_paper(
+        paperId="p1",
+        title="Graph Neural Networks Survey",
+        abstract="",
+        externalIds={"DOI": "10.1/p1", "ArXiv": None},
+    )
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        q = (params or {}).get("query", "")
+        if "graph" in q:
+            return FakeResponse(200, {"data": [p_b, p_a]})
+        return FakeResponse(200, {"data": [p_a_dup]})
+
+    monkeypatch.setattr(lit_search.requests, "get", fake_get)
+    outline = tmp_path / "outline.json"
+    outline.write_text(
+        json.dumps({
+            "title": "T",
+            "venue": "V",
+            "sections": [],
+            "lit_strategy": {"queries": ["graph", "survey"], "must_contain": ["graph neural"]},
+            "viz_plan": {"figures": []},
+        }),
+        encoding="utf-8",
+    )
+    out = tmp_path / "refs.jsonl"
+    lit_search.main([
+        "--queries-from", str(outline),
+        "--out", str(out),
+        "--fallback", "off",
+        "--rank",
+        "--api-key", "k",
+    ])
+    rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(rows) == 2
+    assert rows[0]["paperId"] == "p1"
+    assert rows[0]["externalIds"]["DOI"] == "10.1/p1"
+    assert rows[0]["abstract"] == "graph neural networks"
+
+
+def test_existing_bib_and_append_never_drift_existing_citekeys(monkeypatch, tmp_path):
+    p1 = make_paper(
+        paperId="id1",
+        title="Graph Classification",
+        authors=["Alice Smith"],
+        year=2023,
+        externalIds={"DOI": "10.1/id1", "ArXiv": None},
+    )
+    p2 = make_paper(
+        paperId="id2",
+        title="Graph Compression",
+        authors=["Alice Smith"],
+        year=2023,
+        externalIds={"DOI": "10.1/id2", "ArXiv": None},
+    )
+    prev_bib = tmp_path / "prev.bib"
+    prev_bib.write_text("@article{smith2023graph,\n  title={{Graph Classification}},\n}\n", encoding="utf-8")
+
+    out = tmp_path / "refs.jsonl"
+    out.write_text(json.dumps({**p1, "citekey": "smith2023graph"}) + "\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        lit_search.requests,
+        "get",
+        lambda url, params=None, headers=None, timeout=None: FakeResponse(200, {"data": [p2]}),
+    )
+    bib_out = tmp_path / "refs.bib"
+    lit_search.main([
+        "--query", "graph",
+        "--out", str(out),
+        "--bib", str(bib_out),
+        "--append",
+        "--existing-bib", str(prev_bib),
+        "--fallback", "off",
+        "--api-key", "k",
+    ])
+    rows = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert [r["citekey"] for r in rows] == ["smith2023graph", "smith2023grapha"]
+
+
+def test_source_crossref_arxiv_and_auto_fallback_on_429(monkeypatch, tmp_path, capsys):
+    def fake_get(url, params=None, headers=None, timeout=None):
+        if "semanticscholar" in url:
+            return FakeResponse(429, {"error": "rate limit"})
+        if "crossref" in url:
+            return FakeResponse(200, {
+                "message": {"items": [{
+                    "DOI": "10.1/cr",
+                    "title": ["Crossref Paper"],
+                    "author": [{"given": "Ada", "family": "Lovelace"}],
+                    "issued": {"date-parts": [[2023]]},
+                    "container-title": ["ICLR"],
+                }]}
+            })
+        if "arxiv" in url:
+            return FakeResponse(200, text=(
+                '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+                "<entry><id>https://arxiv.org/abs/2301.00001v1</id>"
+                "<title>ArXiv Paper</title><summary>Abs.</summary>"
+                "<published>2023-01-01T00:00:00Z</published>"
+                "<author><name>Alan Turing</name></author></entry></feed>"
+            ))
+        raise AssertionError(url)
+
+    monkeypatch.setattr(lit_search.requests, "get", fake_get)
+    monkeypatch.setattr(lit_search.time, "sleep", lambda s: None)
+
+    out_auto = tmp_path / "auto.jsonl"
+    lit_search.main(["--query", "test", "--out", str(out_auto), "--source", "auto", "--fallback", "off"])
+    err = capsys.readouterr().err
+    assert "auto" in err
+    rows = [json.loads(l) for l in out_auto.read_text(encoding="utf-8").splitlines() if l.strip()]
+    titles = {r["title"] for r in rows}
+    assert {"Crossref Paper", "ArXiv Paper"} <= titles
+
+
+def test_emit_ledger_draft_and_numeric_map_integrate_with_scripts(monkeypatch, tmp_path):
+    import latex_compose
+    import ledger_audit
+
+    p_l2 = make_paper(
+        paperId="p2",
+        title="With Abstract",
+        abstract="Good summary.",
+        authors=["Ada Lovelace"],
+        year=2024,
+        externalIds={"DOI": "10.1/l2", "ArXiv": None},
+    )
+    p_l3 = make_paper(
+        paperId="p3",
+        title="Title Only",
+        abstract=None,
+        authors=["Grace Hopper"],
+        year=2023,
+        externalIds={"DOI": "10.1/l3", "ArXiv": None},
+    )
+    monkeypatch.setattr(
+        lit_search.requests,
+        "get",
+        lambda url, params=None, headers=None, timeout=None: FakeResponse(200, {"data": [p_l2, p_l3]}),
+    )
+    out = tmp_path / "refs.jsonl"
+    bib = tmp_path / "refs.bib"
+    draft = tmp_path / "claims_refs.jsonl"
+    nmap = tmp_path / "numeric_map.json"
+    lit_search.main([
+        "--query", "compilers",
+        "--out", str(out),
+        "--bib", str(bib),
+        "--fallback", "off",
+        "--emit-ledger-draft", str(draft),
+        "--emit-numeric-map", str(nmap),
+        "--api-key", "k",
+    ])
+    mat = tmp_path / "materials"
+    mat.mkdir()
+    assert ledger_audit.audit_claims(draft, mat) == []
+    claims = ledger_audit.load_claims(draft)
+    assert [c["evidence_level"] for c in claims] == ["L2", "L3"]
+    loaded_map = json.loads(nmap.read_text(encoding="utf-8"))
+    bridged = latex_compose.to_cites("Prior work [1,2] exists.", loaded_map)
+    assert r"\cite{lovelace2024abstract,hopper2023title}" in bridged
+
+
+def test_l3_tldr_suppressed_by_default_and_kept_with_flag(monkeypatch, tmp_path):
+    p_l3 = make_paper(paperId="p3", title="Title Only", abstract=None, tldr="AI summary text")
+    monkeypatch.setattr(
+        lit_search.requests,
+        "get",
+        lambda url, params=None, headers=None, timeout=None: FakeResponse(200, {"data": [p_l3]}),
+    )
+    out_default = tmp_path / "default.jsonl"
+    lit_search.main(["--query", "q", "--out", str(out_default), "--fallback", "off", "--api-key", "k"])
+    row1 = json.loads(out_default.read_text(encoding="utf-8").splitlines()[0])
+    assert row1["tldr"] is None
+
+    out_keep = tmp_path / "keep.jsonl"
+    lit_search.main([
+        "--query", "q", "--out", str(out_keep), "--fallback", "off",
+        "--keep-l3-tldr", "--api-key", "k",
+    ])
+    row2 = json.loads(out_keep.read_text(encoding="utf-8").splitlines()[0])
+    assert row2["tldr"] == "AI summary text"

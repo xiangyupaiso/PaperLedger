@@ -1,15 +1,16 @@
 {
-  "_comment_source": "Example values. Point this at the skill root you install from; adjust every path to your own environment.",
-  "source": "~/.claude/skills",
+  "_comment_source": "Example values. Defaults to the repository's ./skills tree; adjust target roots to match your installed agent environments.",
+  "source": "./skills",
   "targets": [
+    "~/.claude/skills",
     "~/.codex/skills",
     "~/.gemini/config/skills"
   ],
   "optional_targets": [
     "~/.agents/skills"
   ],
-  "_comment_optional_targets": "Opt-in only. sync-skills.ps1 never touches these roots unless you pass -IncludeAgentsRoot, and a missing root is deliberately reported as a failure instead of being created. Delete this list (or leave it empty) if you do not use an agents skill root.",
-  "_comment_manifest": "skills lists every skill this manifest owns; sync-skills.ps1 mirrors strictly inside each listed skill directory and never creates, deletes or modifies anything else in the target roots. Rename this file to manifest.json or pass it with -ManifestPath.",
+  "_comment_optional_targets": "Opt-in only. sync_skills.py (--include-agents-root) and sync-skills.ps1 (-IncludeAgentsRoot) never touch these roots unless explicitly requested, and a missing root fails instead of being created. Delete this list (or leave it empty) if you do not use an agents skill root.",
+  "_comment_manifest": "skills lists every skill this manifest owns; sync_skills.py and sync-skills.ps1 mirror strictly inside each listed skill directory and never create, delete, or modify anything else in target roots. Copy to manifest.json or pass via --manifest / -ManifestPath.",
   "skills": [
     { "name": "paper-orchestrator", "category": "general" },
     { "name": "paper-writer", "category": "writing" },

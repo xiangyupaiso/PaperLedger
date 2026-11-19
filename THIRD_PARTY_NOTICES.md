@@ -6,9 +6,17 @@
 
 ## 1. 九个第三方 skill（原样保留，未修改）
 
-以下目录从作者发布版本逐字节复制，许可证取自各自 `SKILL.md` frontmatter 的
-`license:` 字段。它们的 frontmatter 中没有 `homepage` / `source` 字段，故来源
-链接与作者署名均标为「待补充」；如你是作者或知晓上游地址，欢迎补全。
+> **[!CAUTION] 公开发布前的合规阻断项（Compliance Blocker Before Redistribution）**
+> 1. 下表中的 9 个第三方 skill 当前仅带有各目录 `SKILL.md` frontmatter 中的 `license:` 字段，**缺失真实的作者署名、许可证正文链接与上游仓库来源 URL**（CC-BY / CC-BY-NC-SA 要求的 Attribution 要素尚不完整）；
+> 2. 此外，`skills/academic-humanizer` 的 frontmatter 声明为 `MIT`，但仓库中**尚未包含 MIT 许可证全文与原始 copyright 声明**（MIT 许可证要求在再分发时保留版权声明和许可文本）。
+>
+> **公开发布 / 再分发前必须二选一完成处置（严禁凭记忆或猜测编造作者/URL）**：
+> - **路径 A（补全真实授权信息）**：核实原始发布页面与版权声明，在下表逐项补齐经过核验的作者署名、上游 URL 与版权信息，并为 `academic-humanizer` 补入上游原始 MIT 许可证正文及 copyright 行；
+> - **路径 B（剥离第三方目录仅保留自有 Apache-2.0 代码）**：若无法逐一核验上述 9 个目录的原始作者与完整 MIT 文本，则在公开发布或打包分发前从仓库中移除这 9 个第三方 skill 目录；`paper-orchestrator` 会依据硬规则 10 自动以「独立引擎 + 自有规则参考」优雅降级运行，核心流水线功能不受阻断。
+
+以下目录从此前本地安装副本逐字节复制，许可证取自各自 `SKILL.md` frontmatter 的
+`license:` 字段。它们的 frontmatter 中未包含 `homepage` / `source` 字段，故来源
+链接与作者署名当前标为「待补充」。
 
 | # | Skill 目录 | 许可证（frontmatter） | 来源链接 | 备注 |
 |---|---|---|---|---|

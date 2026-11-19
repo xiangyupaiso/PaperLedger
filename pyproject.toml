@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paper-ledger"
+version = "0.2.0"
+description = "Evidence ledger and deterministic toolchain for PaperLedger academic writing orchestration."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+dependencies = [
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+plot = [
+  "matplotlib>=3.8",
+]
+dev = [
+  "pytest>=8.0",
+  "pyyaml>=6.0",
+  "matplotlib>=3.8",
+]
+
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
