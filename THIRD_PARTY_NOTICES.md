@@ -6,39 +6,48 @@
 
 ## 1. 九个第三方 skill（原样保留，未修改）
 
-> **[!CAUTION] 公开发布前的合规阻断项（Compliance Blocker Before Redistribution）**
-> 1. 下表中的 9 个第三方 skill 当前仅带有各目录 `SKILL.md` frontmatter 中的 `license:` 字段，**缺失真实的作者署名、许可证正文链接与上游仓库来源 URL**（CC-BY / CC-BY-NC-SA 要求的 Attribution 要素尚不完整）；
-> 2. 此外，`skills/academic-humanizer` 的 frontmatter 声明为 `MIT`，但仓库中**尚未包含 MIT 许可证全文与原始 copyright 声明**（MIT 许可证要求在再分发时保留版权声明和许可文本）。
+> **[!NOTE] 合规状态：溯源已补齐（2026-11-19）**
+> 9 个第三方目录的作者、来源仓库与许可证全文均已核实补全：8 个来自
+> [HKUSTDial/Supervisor-Skills](https://github.com/HKUSTDial/Supervisor-Skills)
+> （© 2026 Yuyu Luo（methodology）及贡献者，香港科技大学（广州）数据智能与
+> 分析实验室 DIAL Lab），1 个来自
+> [AIScientists-Dev/academic-humanizer](https://github.com/AIScientists-Dev/academic-humanizer)
+> （© 2026 AIScientists-Dev，MIT）。上游许可证全文逐字收录于
+> [`docs/licenses/`](docs/licenses/)。
 >
-> **公开发布 / 再分发前必须二选一完成处置（严禁凭记忆或猜测编造作者/URL）**：
-> - **路径 A（补全真实授权信息）**：核实原始发布页面与版权声明，在下表逐项补齐经过核验的作者署名、上游 URL 与版权信息，并为 `academic-humanizer` 补入上游原始 MIT 许可证正文及 copyright 行；
-> - **路径 B（剥离第三方目录仅保留自有 Apache-2.0 代码）**：若无法逐一核验上述 9 个目录的原始作者与完整 MIT 文本，则在公开发布或打包分发前从仓库中移除这 9 个第三方 skill 目录；`paper-orchestrator` 会依据硬规则 10 自动以「独立引擎 + 自有规则参考」优雅降级运行，核心流水线功能不受阻断。
+> **差异记录**：`tech-paper-template`、`benchmark-paper-template`、
+> `figure-designer`、`pre-submission-reviewer` 四个目录的 `SKILL.md`
+> frontmatter 写 `CC-BY-4.0`，而上游仓库整体 LICENSE 为 **CC-BY-NC-SA-4.0**。
+> 本仓作为再分发方按更严格的 CC-BY-NC-SA-4.0 对待并遵守（非商用、相同
+> 方式共享）。
 
-以下目录从此前本地安装副本逐字节复制，许可证取自各自 `SKILL.md` frontmatter 的
-`license:` 字段。它们的 frontmatter 中未包含 `homepage` / `source` 字段，故来源
-链接与作者署名当前标为「待补充」。
+以下目录从此前本地安装副本逐字节复制，未做任何修改；下表「生效许可证」
+以上游仓库 LICENSE 为准。
 
-| # | Skill 目录 | 许可证（frontmatter） | 来源链接 | 备注 |
+| # | Skill 目录 | 生效许可证 | 作者 / 单位 | 来源 |
 |---|---|---|---|---|
-| 1 | `skills/paper-writer/` | CC-BY-NC-SA-4.0 | 待补充 | 非商用；相同方式共享 |
-| 2 | `skills/intro-drafter/` | CC-BY-NC-SA-4.0 | 待补充 | 非商用；相同方式共享 |
-| 3 | `skills/deep-research/` | CC-BY-NC-SA-4.0 | 待补充 | 非商用；相同方式共享 |
-| 4 | `skills/paper-polish/` | CC-BY-NC-SA-4.0 | 待补充 | 非商用；相同方式共享 |
-| 5 | `skills/tech-paper-template/` | CC-BY-4.0 | 待补充 | 署名 |
-| 6 | `skills/benchmark-paper-template/` | CC-BY-4.0 | 待补充 | 署名 |
-| 7 | `skills/figure-designer/` | CC-BY-4.0 | 待补充 | 署名 |
-| 8 | `skills/pre-submission-reviewer/` | CC-BY-4.0 | 待补充 | 署名 |
-| 9 | `skills/academic-humanizer/` | MIT | 待补充 | 另含 `version: 0.3.3` |
+| 1 | `skills/paper-writer/` | CC-BY-NC-SA-4.0 | 骆昱宇 (Yuyu Luo) 及实验室成员 · HKUST(GZ) DIAL Lab | [Supervisor-Skills](https://github.com/HKUSTDial/Supervisor-Skills) |
+| 2 | `skills/intro-drafter/` | CC-BY-NC-SA-4.0 | 同上 | 同上 |
+| 3 | `skills/deep-research/` | CC-BY-NC-SA-4.0 | 同上 | 同上 |
+| 4 | `skills/paper-polish/` | CC-BY-NC-SA-4.0 | 同上 | 同上 |
+| 5 | `skills/tech-paper-template/` | CC-BY-NC-SA-4.0（frontmatter 标 CC-BY-4.0，从严处理） | 同上 | 同上 |
+| 6 | `skills/benchmark-paper-template/` | CC-BY-NC-SA-4.0（同上） | 同上 | 同上 |
+| 7 | `skills/figure-designer/` | CC-BY-NC-SA-4.0（同上） | 同上 | 同上 |
+| 8 | `skills/pre-submission-reviewer/` | CC-BY-NC-SA-4.0（同上） | 同上 | 同上 |
+| 9 | `skills/academic-humanizer/` | MIT | AIScientists-Dev 社区（谱系基于 [blader/humanizer](https://github.com/blader/humanizer)，MIT；标准参考 [koaeraser/ARMS](https://github.com/koaeraser/ARMS)） | [academic-humanizer](https://github.com/AIScientists-Dev/academic-humanizer)（v0.3.3） |
 
 许可证文本：
 
-- CC-BY-4.0: https://creativecommons.org/licenses/by/4.0/
-- CC-BY-NC-SA-4.0: https://creativecommons.org/licenses/by-nc-sa/4.0/
-- MIT: https://opensource.org/license/mit
+- Supervisor-Skills 套件（CC-BY-NC-SA-4.0）：全文见
+  [`docs/licenses/LICENSE-Supervisor-Skills.txt`](docs/licenses/LICENSE-Supervisor-Skills.txt)；
+  法典页：https://creativecommons.org/licenses/by-nc-sa/4.0/
+- academic-humanizer（MIT）：全文见
+  [`docs/licenses/LICENSE-academic-humanizer.txt`](docs/licenses/LICENSE-academic-humanizer.txt)；
+  参考：https://opensource.org/license/mit
 
-注意：4 个 CC-BY-NC-SA-4.0 skill 带有**非商用**条款。它们保持原许可证，
-不因与本仓库的 Apache-2.0 代码放在同一目录树而改变；再分发或商用前请
-自行核对相应条款。
+注意：**整套 Supervisor-Skills（8 个目录）含非商用条款**。它们保持原许可
+证，不因与本仓库的 Apache-2.0 代码放在同一目录树而改变；再分发或商用前
+请自行核对相应条款。
 
 ## 2. CVPR 2025 作者套件（原样保留）
 

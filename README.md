@@ -146,7 +146,8 @@ PaperLedger/
 ├── tests/                                # pytest 套件、端到端集成测试与 fixtures
 ├── docs/
 │   ├── voice-pack-training.md            # 声音包自训配方（中文）
-│   └── upstream-prompts-archive.md       # 上游 PaperOrchestra 原始提示词归档
+│   ├── upstream-prompts-archive.md       # 上游 PaperOrchestra 原始提示词归档
+│   └── licenses/                         # 第三方许可证全文（逐字收录上游）
 ├── LICENSE                               # Apache-2.0
 ├── NOTICE                                # Apache §4 上游归属
 ├── THIRD_PARTY_NOTICES.md                # 第三方逐项清单与公开发布前合规提示
@@ -159,7 +160,7 @@ PaperLedger/
 | 9 个兄弟 skill | 58 |
 | `tools/` | 3 |
 | `tests/` | 20 |
-| `docs/` | 2 |
+| `docs/` | 4 |
 
 ---
 
@@ -207,10 +208,14 @@ PaperLedger/
 - **本仓自己的代码与文档：Apache-2.0**（`LICENSE`）。搬入/改写的
   google-research/paper-orchestra 代码按 Apache §4 在 `NOTICE` 中署名
   （repo URL + commit + 文件清单）；上游无 NOTICE 文件。
-- **9 个第三方 skill 原样保留各自许可证**：4 个 CC-BY-NC-SA-4.0
-  （含**非商用**条款）、4 个 CC-BY-4.0、1 个 MIT。逐项见
-  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。它们不因与本仓 Apache-2.0 代码同树而改变。
-  **公开发布前合规阻断项**：这 9 个目录目前缺少经核验的上游作者署名与来源链接，且 `skills/academic-humanizer/` 缺少 MIT 许可证正文与版权行；公开发布前须按 `THIRD_PARTY_NOTICES.md` 第 1 节补齐真实溯源，或移除该 9 个第三方目录（由硬规则 10 优雅降级）。
+- **9 个第三方 skill 原样保留各自许可证**：8 个来自港科广（HKUST-GZ）DIAL
+  Lab 的 **Supervisor-Skills** 套件（骆昱宇 Yuyu Luo 及成员，© 2026；上游
+  LICENSE 为 **CC-BY-NC-SA-4.0**，含**非商用**条款——其中 4 个目录
+  frontmatter 标 CC-BY-4.0，本仓从严按 NC-SA 处理并记录差异）；1 个为
+  **academic-humanizer**（© 2026 AIScientists-Dev，MIT，谱系基于
+  blader/humanizer）。逐项溯源与许可证全文（`docs/licenses/`）见
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。它们不因与本仓
+  Apache-2.0 代码同树而改变；商用请核对非商用条款。
 - **CVPR 作者套件**（`templates/cvpr2025/`）按会议/作者套件原条款保留；
   `ieeenat_fullname.bst` 为 LPPL（© 1993–2007 Patrick W. Daly）。见
   `THIRD_PARTY_NOTICES.md`。
@@ -221,10 +226,14 @@ PaperLedger/
 
 - [google-research/paper-orchestra](https://github.com/google-research/paper-orchestra)
   （Apache-2.0）：大纲 schema、文献检索、模板装配与提示词存档的上游出处。
-- 9 个兄弟 skill 的作者：paper-writer、intro-drafter、tech-paper-template、
-  benchmark-paper-template、deep-research、figure-designer、
-  pre-submission-reviewer、paper-polish、academic-humanizer
-  —— 作者与来源链接**待补充**（其 SKILL.md 未声明 homepage/source）。
+- **Supervisor-Skills** 套件 8 个 skill（paper-writer、intro-drafter、
+  tech-paper-template、benchmark-paper-template、deep-research、
+  figure-designer、pre-submission-reviewer、paper-polish）：香港科技大学
+  （广州）数据智能与分析实验室 DIAL Lab，骆昱宇 (Yuyu Luo) 助理教授及
+  实验室成员 —— [HKUSTDial/Supervisor-Skills](https://github.com/HKUSTDial/Supervisor-Skills)
+- **academic-humanizer**：AIScientists-Dev 社区 ——
+  [AIScientists-Dev/academic-humanizer](https://github.com/AIScientists-Dev/academic-humanizer)
+  （MIT；基于 [blader/humanizer](https://github.com/blader/humanizer)）
 - CVPR 作者套件（[cvpr-org/author-kit](https://github.com/cvpr-org/author-kit)）；
   `ieeenat_fullname.bst` 作者 Patrick W. Daly。
 - 声音包语料 8 篇最佳论文：
