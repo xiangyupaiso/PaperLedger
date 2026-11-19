@@ -1,255 +1,289 @@
-# PaperLedger — paper-orchestrator
+<div align="center">
 
-**English (60-second summary).** PaperLedger is an open-source, checkpointed
-seven-stage pipeline for writing research papers with Claude Code, Codex, or
-Antigravity. It ports the core ideas of Google's PaperOrchestra — an outline
-JSON, literature stitching, figure specs, and LaTeX template assembly — into
-host-agent skills, then adds two things a generic writing skill lacks: a
-**claims ledger** (`claims.jsonl`) so every sentence is traceable, with no
-invented citations or numbers, and a **voice pack** calibrated on award-winning
-papers to remove defensive writing and AI tone. Every stage stops for a human
-sign-off. The pipeline guarantees traceability; it does not make scientific
-judgments for you.
+# PaperLedger
 
-**一句话定位.** 七阶段 checkpoint 科研论文流水线 skill：把 Google
-PaperOrchestra 的核心思想（大纲 JSON / 文献缝合 / 图表 / 模板装配）搬进
-Claude Code / Codex / Antigravity 宿主，用 claims 台账彻底杜绝乱编乱引，
-用顶刊语料训练的 voice pack 消除防御性写作与 AI 腔。
+**An evidence-tracked, seven-stage checkpointed research paper pipeline for coding agents.**
 
----
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-orange)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![Tests](https://img.shields.io/badge/tests-160%20passing-brightgreen)](tests/)
+[![Pipeline](https://img.shields.io/badge/pipeline-7%20stages-informational)](skills/paper-orchestrator/SKILL.md)
+[![Third-party](https://img.shields.io/badge/notices-CC%20/%20MIT%20/%20LPPL-lightgrey)](THIRD_PARTY_NOTICES.md)
 
-## 为什么需要它：AI 写论文的三大病
+**English** | [简体中文](README_zh-CN.md)
 
-### 1. 乱引用、乱编数字
+</div>
 
-模型会把「读过题录」说成「读过方法」，把二手摘要里的数字搬进方法段。
-
-- 错（方法段）：`Prior work reports 93.4% accuracy, and our tool improves on that result.`
-  —— 93.4 不在任何可核验的原文区间里，L3 题录也不支持方法细节。
-- 对（related work，L3 只做指称）：`Vartak et al. (2016) addressed machine-learning model management.`
-  —— 数字只能出现在其 `origin` 区间内；L3 的边界是「题录指称」，数字禁入
-  方法段。
-
-### 2. 不说人话、AI 腔
-
-- 错：`本文提出一种新颖的框架，旨在深入探究该问题的内在机理。`
-- 对：`We remove the per-token gate; training is 1.8× faster at equal accuracy.`
-  —— 具体动作、具体数字、可核验。
-
-### 3. 防御性写作
-
-- 错：`该方案的可行性依旧存疑，仍有待进一步研究。`
-- 对：`在 X 上取得 12.4% 提升；下一步在 Y 数据集上验证泛化性。`
-  —— 把限制说具体，把已测到的说直，把下一步说明白。
+> **Core Guarantee:** Every factual claim and number traces back to a verifiable source in `claims.jsonl`, and every stage pauses for explicit human sign-off. PaperLedger guarantees traceability—it never makes scientific judgments for you.
 
 ---
 
-## 核心机制
+## Overview
 
-- **一本账：`claims.jsonl`。** 每条主张带 `claim / origin / evidence_level /
-  boundary` 四字段，`evidence_level` 沿用 L0–L4 刻度：L1 支持任何主张；
-  L2 只支持方向与 headline findings；L3 只支持题录指称（经白名单限定于 Related Work）；
-  L0 是无数字且不含专名的领域常识；L4（模型记忆）永不入账。正文与表格中每个
-  受审数字（含数据性内联数学如 `$93.4\%$`、`$1.8\times$` 与单位后缀数字）都必须能在被引 claim
-  的 `origin` 原文区间中逐字找到，或由声明过的白名单换算（支持链式换算）得出。
-- **四个确定性脚本。** 机械工作不交给模型即兴发挥：
+**PaperLedger** (`paper-orchestrator`) is an open-source, checkpointed seven-stage pipeline for writing research papers with **Claude Code**, **Codex**, or **Antigravity**.
 
-  | 脚本 | 作用 |
-  |---|---|
-  | `scripts/lit_search.py` | S2 / Crossref / arXiv 检索（`--queries-from outline.json`、`--source auto\|s2\|crossref\|arxiv`、`--append --existing-bib` 锁键不漂移、`--emit-ledger-draft`、`--emit-numeric-map`、`--rank`，L3 默认剥离 AI `tldr`） |
-  | `scripts/plot_from_logs.py` | 从 CSV/JSONL 确定性绘出矢量图与 `booktabs` 表格（`--mode table` 纯标准库无需 `matplotlib`；支持双通道编码、误差棒、`table*`、`bold_best`、自定义表头） |
-  | `scripts/latex_compose.py` | 模板装配、`sections/*.tex` 与 `--tables` 接线、`--outline` 元数据注入（标题/作者/paperID）、`\bibliography` 自动同步并清理残留 `.bib`、过滤伴随 `.png` 预览、`[n] → \cite{key}` 桥、`.log`/`.blg` 编译诊断校验 |
-  | `scripts/ledger_audit.py` | 台账门禁与审计（L3 白名单限制在 Related Work、表格块级 `% @claim:` 绑定与 `--tables`、数据性内联数学审计、单位后缀数字与链式白名单换算、`--outline` 与 `--bib` 校验、`--strength-report` + `--dispositions` 处置指纹持久化） |
+It ports the architectural foundation of Google's [PaperOrchestra](https://github.com/google-research/paper-orchestra)—structured outline JSON, multi-source literature stitching, figure/table generation, and LaTeX template assembly—into portable host-agent skills, then adds two safeguards generic writing skills lack:
 
-- **七阶段检查点。** `材料入账 → 大纲 JSON → 文献缝合 → 分节成稿 → 图表
-  → LaTeX 装配 → 自评审`。每阶段产出后停下等用户签字；支持「从阶段 N
-  开始」并校验前序产物。签字 = 你在会话里回复确认/继续；各阶段检查点问题见
-  `references/stage-playbook.md`。
-- **单一事实源与阶段 7 顺序。** 阶段 4–7 全程只修改 `sections/*.tex`、`tables/*.tex`、
-  `outline.json`、`claims.jsonl`，`compiled/` 仅由 `latex_compose.py` 重建；
-  阶段 7 严格锁定 `7.1 → 7.5`（任何编辑后必重跑 `ledger_audit` 与 `latex_compose`），
-  Abstract 在阶段 5 后最终定稿。
-- **一个声音（XOR）。** 润色只走 `paper-polish` **或** `academic-humanizer`
-  之一，禁止两者叠加；阶段 7 的评审结论归 `pre-submission-reviewer`。
-- **声音包与提示词分离。** `references/voice-calibration.md` 是可替换的 voice pack，
-  出厂版在 2023–2025 年 CS 顶会最佳论文语料上校准；其他学科按
-  [`docs/voice-pack-training.md`](docs/voice-pack-training.md) 自训替换。
-  `references/reflection-prompts.md` 仅为精简的运行时自评 Rubric；上游
-  PaperOrchestra 原始提示词归档位于 [`docs/upstream-prompts-archive.md`](docs/upstream-prompts-archive.md)。
-- **优雅降级。** 宿主没装某个兄弟 skill 时，该阶段由宿主模型直接承担；
-  检查点、台账与审计规则不变，流水线不会因缺 skill 死锁。
+1. **A Claims Ledger (`claims.jsonl`)** — Enforces strict L0–L4 evidence boundaries and verbatim numeric traceability across prose, inline math, and tables, eliminating hallucinated citations and fabricated numbers.
+2. **A Calibrated Voice Pack (`voice-calibration.md`)** — Trained on 2023–2025 top-tier CS Best Paper corpora to remove AI-ese and defensive hedging while matching phrasing strength to actual evidence strength.
+
+### Why PaperLedger?
+
+| AI Writing Failure Mode | Typical Uncontrolled Output | PaperLedger Standard |
+|---|---|---|
+| **Fabricated Citations & Numbers** | *"Prior work reports 93.4% accuracy, and our tool improves on that result."* (93.4% is unverified; title/metadata-only L3 sources cannot back method details.) | *"Vartak et al. (2016) addressed machine-learning model management."* (Numbers must appear verbatim in the cited `origin` span or via a declared conversion; L3 is strictly whitelisted to Related Work.) |
+| **AI-ese & Hollow Fluff** | *"This paper proposes a novel framework aiming to deeply explore the intrinsic mechanisms of the problem."* | *"We remove the per-token gate; training is 1.8× faster at equal accuracy."* (Concrete action, concrete verifiable number, zero filler.) |
+| **Defensive Hedging** | *"The feasibility of this approach remains questionable and warrants further investigation."* | *"Achieves a 12.4% gain on X; next we evaluate generalization on dataset Y."* (State measured results directly, scope limitations concretely, and specify next steps.) |
 
 ---
 
-## 快速开始
+## Architecture & Seven-Stage Pipeline
 
-1. **安装 skill。** 把 `skills/` 下的文件夹整体拷进宿主的 skills 目录：
+PaperLedger orchestrates specialized domain skills alongside four deterministic Python scripts. Every stage halts for human confirmation before advancing, and you can enter or resume from any stage `N` with automatic validation of upstream artifacts.
 
-   | 宿主 | 默认 skills 目录 |
-   |---|---|
-   | Claude Code | `~/.claude/skills/` |
-   | Codex | `~/.codex/skills/` |
-   | Antigravity | `~/.gemini/config/skills/` |
+```mermaid
+flowchart LR
+    S1["Stage 1<br/>Material Ledger"] -->|Sign-off| S2["Stage 2<br/>Outline JSON"]
+    S2 -->|Sign-off| S3["Stage 3<br/>Literature Stitching"]
+    S3 -->|Sign-off| S4["Stage 4<br/>Section Drafting"]
+    S4 -->|Sign-off| S5["Stage 5<br/>Figures & Tables"]
+    S5 -->|Sign-off| S6["Stage 6<br/>LaTeX Assembly"]
+    S6 -->|Sign-off| S7["Stage 7<br/>Review & Polish"]
 
-   > 路径以本仓 `tools/manifest.example.json` 的示例为准；不同宿主版本可能
-   > 不同，按其文档调整。Windows 下 `~` 为 `%USERPROFILE%`。
-
-2. **触发。** 在宿主会话里说：
-
-   - 全流程：`用 paper-orchestrator，材料在 <目录>，目标是 <会议>`
-   - 单阶段：`从 paper-orchestrator 阶段4开始，outline.json 在 <路径>`
-   - 任何检查点说「停」，产物与台账留在输出目录，可续跑。
-
-3. **多宿主同步（可选）。** 推荐从仓库根目录使用跨平台纯标准库脚本
-   `tools/sync_skills.py`（支持 macOS / Linux / Windows）；示例 manifest
-   `tools/manifest.example.json` 默认以 `"source": "./skills"` 同步至
-   `~/.claude/skills`、`~/.codex/skills`、`~/.gemini/config/skills`：
-
-   ```bash
-   python tools/sync_skills.py --manifest tools/manifest.example.json --dry-run
-   python tools/sync_skills.py --manifest tools/manifest.example.json
-   python tools/sync_skills.py --self-test
-   ```
-
-   Windows 环境亦可在仓库根目录使用 `tools/sync-skills.ps1`：
-
-   ```powershell
-   pwsh -NoProfile -File tools/sync-skills.ps1 `
-     -ManifestPath tools/manifest.example.json -DryRun
-   pwsh -NoProfile -File tools/sync-skills.ps1 `
-     -ManifestPath tools/manifest.example.json
-   ```
-
-   `optional_targets`（如 `~/.agents/skills`）只有显式加
-   `--include-agents-root`（或 PowerShell `-IncludeAgentsRoot`）才会同步；
-   两个脚本均绝不自动创建缺失的目标根目录，也不碰 manifest 之外的任何目录。
-
----
-
-## 目录结构
-
+    DB[("claims.jsonl<br/>Single Ledger")] -.-> S1 & S3 & S4 & S5 & S7
 ```
+
+| Stage | Name | Primary Owner / Sibling Skill | Deterministic Script | Key Output / Gate |
+|---|---|---|---|---|
+| **1** | **Material Ledger** | `paper-orchestrator` | — | `claims.jsonl` populated from author materials (`material:<path>#L10-L15`) |
+| **2** | **Outline JSON** | `tech-paper-template` / `benchmark-paper-template` | — | Structured `outline.json` with `lit_strategy` |
+| **3** | **Literature Stitching** | `deep-research` | `lit_search.py` | Verified BibTeX (`--append --existing-bib`), numeric map, fresh-context citation check |
+| **4** | **Section Drafting** | `paper-writer` / `intro-drafter` | `ledger_audit.py` | `sections/*.tex` with `% @claim:<id>` bindings (Abstract finalized after Stage 5) |
+| **5** | **Figures & Tables** | `figure-designer` | `plot_from_logs.py` | Vector `.pdf` figures & `booktabs` `tables/*.tex` |
+| **6** | **LaTeX Assembly** | `paper-orchestrator` | `latex_compose.py` | Assembled `manuscript/` package, stripped `% @claim:` tags, `.log`/`.blg` checks |
+| **7** | **Self-Review & Polish** | `pre-submission-reviewer` + XOR (`paper-polish` \| `academic-humanizer`) | `ledger_audit.py` + `latex_compose.py` | Strict `7.1 → 7.5` sequence: strength-mismatch audit, single-pass polish, re-assembly |
+
+---
+
+## Core Mechanisms
+
+### 1. Single Ledger (`claims.jsonl`) & L0–L4 Evidence Discipline
+
+Every claim carries four required fields: `claim`, `origin`, `evidence_level`, and `boundary`. Every audited number in prose, inline data math (e.g., `$93.4\%$`, `$1.8\times$`), unit-suffixed figures, and tables must appear verbatim in its cited `origin` span or be derived via a declared whitelisted conversion (chained conversions supported).
+
+| Level | Evidence Source | Allowed Claim Boundary | Numeric Claims |
+|---|---|---|---|
+| **L1** | Verified primary text / author experimental logs (`origin` line span) | Supports any technical, methodological, or empirical claim | Allowed (must match `origin` verbatim or via whitelisted conversion) |
+| **L2** | Verified abstract / summary | Direction and headline findings only; no method steps or granular figures | Headline findings only |
+| **L3** | Bibliographic metadata only (no abstract; AI `tldr` stripped by default) | Citation mention only (e.g., *"X et al. (Year) addressed Y"*), whitelisted strictly to Related Work | Forbidden |
+| **L0** | Field common knowledge | General domain facts containing no numbers, proper nouns, or quantitative comparisons | Forbidden |
+| **L4** | Unverified model memory | **Never enters the ledger** | Forbidden |
+
+### 2. Four Deterministic Scripts
+
+Mechanical, error-prone operations are never left to LLM improvisation:
+
+| Script | Responsibility & Key Capabilities |
+|---|---|
+| `scripts/lit_search.py` | Multi-source search across Semantic Scholar, Crossref, and arXiv (`--queries-from outline.json`, `--source auto\|s2\|crossref\|arxiv`, `--append --existing-bib` for drift-free citekey locking, `--emit-ledger-draft`, `--emit-numeric-map`, `--rank`; strips AI `tldr` at L3 by default). |
+| `scripts/plot_from_logs.py` | Deterministic vector PDF plotting and `booktabs` LaTeX table generation from CSV/JSONL (`--mode table` uses pure standard library without `matplotlib`; supports dual-channel encoding, error bars, `table*`, `bold_best`, and custom headers). |
+| `scripts/latex_compose.py` | Template assembly, `sections/*.tex` and `--tables` wiring, `--outline` metadata injection (title/authors/paperID), automatic `\bibliography` sync and stale `.bib` cleanup, companion `.png` preview filtering, `[n] → \cite{key}` bridge, and `.log`/`.blg` diagnostic validation. |
+| `scripts/ledger_audit.py` | Hard ledger gate and audit: L3 Related Work whitelist enforcement, block-level table `% @claim:` binding (`--tables`), inline data-math and unit-suffix numeric checks, chained whitelisted conversions, `--outline` and `--bib` checks, plus `--strength-report` and `--dispositions` fingerprint persistence. |
+
+### 3. Design Contracts
+
+- **Single Source of Truth:** Across Stages 4–7, edits happen exclusively in `sections/*.tex`, `tables/*.tex`, `outline.json`, and `claims.jsonl`. The compiled `manuscript/` directory is a pure build artifact regenerated by `latex_compose.py`.
+- **Locked Stage 7 Sequence (`7.1 → 7.5`):** Any polish or revision must re-run `ledger_audit.py` (clearing strength mismatches) and `latex_compose.py` before final sign-off. The Abstract is finalized only after Stage 5 results and figures lock.
+- **One Voice (Strict XOR):** Final polishing invokes **either** `paper-polish` (for Zh→En translation artifacts / Chinglish) **or** `academic-humanizer` (for native English AI-tone removal)—never both. Pre-submission verdicts belong solely to `pre-submission-reviewer`.
+- **Pluggable Voice Pack:** `references/voice-calibration.md` is a swappable voice pack calibrated on 2023–2025 CS Best Papers. Follow [docs/voice-pack-training.md](docs/voice-pack-training.md) to train a replacement for other disciplines without touching pipeline rules. Runtime self-review rubrics live in `references/reflection-prompts.md`, while full upstream PaperOrchestra prompts are archived in [docs/upstream-prompts-archive.md](docs/upstream-prompts-archive.md).
+- **Graceful Degradation:** If a host environment lacks any sibling skill, the host model assumes that stage directly while preserving all checkpoints, ledger rules, and audit gates—the pipeline never deadlocks.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- **Python** `>= 3.11`
+- **LaTeX toolchain** *(optional)* — If TeX is not installed, Stage 6 automatically falls back to a source-only verification package.
+
+### 1. Install Skills
+
+Copy the folders under `skills/` into your host agent's skills directory:
+
+| Host Agent | Default Skills Directory |
+|---|---|
+| **Claude Code** | `~/.claude/skills/` |
+| **Codex** | `~/.codex/skills/` |
+| **Antigravity** | `~/.gemini/config/skills/` |
+
+> Paths follow [tools/manifest.example.json](tools/manifest.example.json); adjust if your host version uses a custom root. On Windows, `~` maps to `%USERPROFILE%`.
+
+#### Optional: Multi-Host Sync Utility
+
+Use the cross-platform, standard-library sync script from the repository root (macOS / Linux / Windows):
+
+```bash
+# Preview changes without writing
+python tools/sync_skills.py --manifest tools/manifest.example.json --dry-run
+
+# Sync ./skills to Claude Code, Codex, and Antigravity
+python tools/sync_skills.py --manifest tools/manifest.example.json
+
+# Run built-in self-test
+python tools/sync_skills.py --self-test
+```
+
+On Windows PowerShell:
+
+```powershell
+pwsh -NoProfile -File tools/sync-skills.ps1 `
+  -ManifestPath tools/manifest.example.json -DryRun
+pwsh -NoProfile -File tools/sync-skills.ps1 `
+  -ManifestPath tools/manifest.example.json
+```
+
+> `optional_targets` (such as `~/.agents/skills`) are synced only when `--include-agents-root` (or `-IncludeAgentsRoot`) is explicitly passed. Neither script auto-creates missing target root directories or touches paths outside the manifest.
+
+### 2. Trigger the Pipeline
+
+In your host agent session:
+
+- **Full end-to-end run:**
+  ```text
+  Use paper-orchestrator. Materials are in <dir>, target venue is <conference>.
+  ```
+- **Resume from a specific stage:**
+  ```text
+  Start paper-orchestrator from Stage 4; outline.json is at <path>.
+  ```
+- **Pause anytime:** Say `stop` at any checkpoint—all artifacts and `claims.jsonl` remain in the output directory for clean resumption.
+
+*(Chinese trigger phrasing such as `用 paper-orchestrator，材料在 <目录>，目标是 <会议>` is equally supported.)*
+
+---
+
+## Repository Structure
+
+```text
 PaperLedger/
-├── pyproject.toml                        # 依赖声明与 pytest 配置
+├── pyproject.toml                        # Dependencies & pytest configuration
 ├── skills/
-│   ├── paper-orchestrator/               # 本流水线（Apache-2.0；20 files）
+│   ├── paper-orchestrator/               # Core 7-stage pipeline (Apache-2.0; 20 files)
 │   │   ├── SKILL.md
-│   │   ├── assets/                       # claims 台账 / outline 模板
-│   │   ├── references/                   # 阶段手册、声音规则、voice pack、自评 Rubric、上游出处
-│   │   ├── scripts/                      # 四个确定性脚本
-│   │   └── templates/cvpr2025/           # CVPR 作者套件（原条款）
-│   └── <9 个兄弟 skill>/                  # 原样保留，各自许可证
+│   │   ├── assets/                       # claims.jsonl & outline_template.json
+│   │   ├── references/                   # Stage playbook, voice rules, voice pack, rubric
+│   │   ├── scripts/                      # 4 deterministic Python scripts
+│   │   └── templates/cvpr2025/           # CVPR 2025 author kit (original terms)
+│   └── <9 sibling skills>/               # Bundled verbatim under original licenses
 ├── tools/
-│   ├── sync_skills.py                    # 跨平台纯标准库多宿主镜像（含 --self-test）
-│   ├── sync-skills.ps1                   # Windows PowerShell 镜像脚本（含 -SelfTest）
-│   └── manifest.example.json             # 示例 manifest（./skills -> 3 个默认宿主目录）
-├── tests/                                # pytest 套件、端到端集成测试与 fixtures
+│   ├── sync_skills.py                    # Cross-platform stdlib multi-host sync (--self-test)
+│   ├── sync-skills.ps1                   # Windows PowerShell sync script (-SelfTest)
+│   └── manifest.example.json             # Default sync manifest (./skills -> 3 hosts)
+├── tests/                                # Pytest suite, E2E pipeline tests & fixtures
 ├── docs/
-│   ├── voice-pack-training.md            # 声音包自训配方（中文）
-│   ├── upstream-prompts-archive.md       # 上游 PaperOrchestra 原始提示词归档
-│   └── licenses/                         # 第三方许可证全文（逐字收录上游）
+│   ├── voice-pack-training.md            # Guide to training custom domain voice packs (ZH)
+│   ├── upstream-prompts-archive.md       # Archived upstream PaperOrchestra prompts
+│   └── licenses/                         # Verbatim third-party license texts
 ├── LICENSE                               # Apache-2.0
-├── NOTICE                                # Apache §4 上游归属
-├── THIRD_PARTY_NOTICES.md                # 第三方逐项清单与公开发布前合规提示
-└── README.md
+├── NOTICE                                # Apache-2.0 §4 upstream attribution
+├── THIRD_PARTY_NOTICES.md                # Itemized third-party provenance & compliance
+├── README.md                             # English documentation (default)
+└── README_zh-CN.md                       # Simplified Chinese documentation
 ```
 
-| 区域 | 文件数 |
+| Area | File Count |
 |---|---|
 | `skills/paper-orchestrator/` | 20 |
-| 9 个兄弟 skill | 58 |
+| 9 bundled sibling skills | 58 |
 | `tools/` | 3 |
 | `tests/` | 20 |
 | `docs/` | 4 |
 
 ---
 
-## 测试与验证
+## Testing & Verification
 
-- **依赖配置（`pyproject.toml`）。** 需 Python ≥ 3.11。完整安装测试依赖：
+### Install Dependencies
 
+Full development and plotting dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
+Minimal dependencies for core standard-library scripts and table-mode tests (without vector plotting):
+
+```bash
+pip install requests pyyaml pytest
+```
+
+### Verified Test Suites
+
+- **Core deterministic suite** (requires no `matplotlib`, TeX, live network, or Windows junction privileges):
   ```bash
-  pip install -e ".[dev]"
+  python -m pytest tests/ --ignore=tests/test_plot_from_logs.py --ignore=tests/test_smoke.py --ignore=tests/test_sync_script.py -q -p no:cacheprovider
   ```
+  **Result:** `147 passed` — covers ledger gates, L3 whitelisting, table-block & inline data-math audits, chained conversions, outline/BibTeX validation, multi-source `lit_search` citekey locking, `latex_compose` metadata injection & log checks, `plot_from_logs` table mode, Stage 7 contracts, `sync_skills.py` unit tests, E2E Stage 1→7 integration, and adversarial voice-calibration checks.
 
-  若仅运行核心纯标准库与表格模式工具链（不渲染矢量图表），最小测试依赖为：
-
+- **Cross-platform & PowerShell sync verification:**
   ```bash
-  pip install requests pyyaml pytest
+  python -m pytest tests/test_sync_script.py -k "not selftest" -q -p no:cacheprovider
+  python tools/sync_skills.py --self-test
   ```
+  **Result:** `2 passed, 1 deselected`; `sync_skills.py --self-test` exits `0`.
 
-  LaTeX 工具链可选：未装 TeX 时阶段 6 走 source-only 检查回退。
+- **Full test suite** (`python -m pytest tests/ -q -p no:cacheprovider`) additionally requires `matplotlib` (`test_plot_from_logs.py`, `test_smoke.py`) and a Windows PowerShell environment with NTFS junction permissions (`test_sync_script.py::test_selftest`). Byte integrity of the CVPR 2025 author kit is pinned via `tests/fixtures/cvpr2025_sha256.json`.
 
-- **已验证测试范围（当前仓库实测）。**
-  - 核心确定性套件（无需 `matplotlib`、TeX、实时网络或 Windows junction 权限）：
-    ```bash
-    python -m pytest tests/ --ignore=tests/test_plot_from_logs.py --ignore=tests/test_smoke.py --ignore=tests/test_sync_script.py -q -p no:cacheprovider
-    ```
-    结果：**147 passed**（覆盖台账门禁、L3 白名单、表格块与内联数据数学审计、链式换算、纲要与引文校验、`lit_search` 多源检索与不漂移锁键、`latex_compose` 元数据注入与编译日志检查、`plot_from_logs` 表格生成、多 skill 冲突与阶段 7 顺序契约、`sync_skills.py` 单测、阶段 1→7 端到端集成与对抗样本机检）。
-  - 跨平台与 PowerShell 同步校验：
-    ```bash
-    python -m pytest tests/test_sync_script.py -k "not selftest" -q -p no:cacheprovider
-    python tools/sync_skills.py --self-test
-    ```
-    结果：`test_sync_script.py -k "not selftest"` **2 passed, 1 deselected**；`sync_skills.py --self-test` 退出 0。
-  - 完整全套执行（`python -m pytest tests/ -q -p no:cacheprovider`）额外依赖 `matplotlib`（`test_plot_from_logs.py`、`test_smoke.py`）与具备创建 NTFS junction 权限的 Windows PowerShell 环境（`test_sync_script.py::test_selftest`）。
-  - 说明：公开树不附带 `vendor/` 上游 clone，CVPR 作者套件字节一致性由 `tests/fixtures/cvpr2025_sha256.json` 固定。
+### E2E & Voice Pack Evaluation Boundaries
 
-- **端到端 Stage 1→7 与声音包评测边界。**
-  - [`tests/test_e2e_pipeline.py`](tests/test_e2e_pipeline.py) 覆盖阶段 1→7 自动化演练，在 `03_approach.tex` 故意植入未入账 `$99.9\%$` 与越界 L3 `\cite` 验证双违规必返回 exit 1，随后完成 `tab_main.tex`、`--strength-report`、`--dispositions`、阶段 7 润色与幂等重新装配。
-  - [`tests/test_voice_calibration_adversarial.py`](tests/test_voice_calibration_adversarial.py) 在 `pytest` 中仅对**历史宿主模型评测记录快照**运行确定性 `ledger_audit` 断言、文档规则一致性与 B 组改写非捏造数字检查（不调用实时大模型）；任何对 `voice-calibration.md` 的修改都必须按 [`docs/voice-pack-training.md`](docs/voice-pack-training.md) 第 6 步重开干净上下文完成实时 LLM A/B/C 复测。
-- **加载冒烟。** Claude Code PASS；Antigravity (agy) PASS；Codex 桌面 app
-  尚待用户人工确认——未获确认前不声称三端全绿。
+- [tests/test\_e2e\_pipeline.py](tests/test_e2e_pipeline.py) runs an automated Stage 1→7 walkthrough, intentionally injecting an unledgered `$99.9\%$` and an out-of-bounds L3 `\cite` into `03_approach.tex` to verify exit code `1`, then completes `tab_main.tex`, `--strength-report`, `--dispositions`, Stage 7 polish, and idempotent re-assembly.
+- [tests/test\_voice\_calibration\_adversarial.py](tests/test_voice_calibration_adversarial.py) executes deterministic `ledger_audit` assertions and document-rule consistency checks against recorded host-model evaluation snapshots (no live LLM calls in `pytest`). Any modification to `voice-calibration.md` must be re-evaluated with fresh-context live LLM A/B/C testing per Step 6 of [docs/voice-pack-training.md](docs/voice-pack-training.md).
+
+### Host Smoke-Test Status
+
+| Host Environment | Status |
+|---|---|
+| **Claude Code** | `PASS` |
+| **Antigravity (`agy`)** | `PASS` |
+| **Codex Desktop App** | Pending manual confirmation |
 
 ---
 
-## 许可证
+## License & Third-Party Notices
 
-- **本仓自己的代码与文档：Apache-2.0**（`LICENSE`）。搬入/改写的
-  google-research/paper-orchestra 代码按 Apache §4 在 `NOTICE` 中署名
-  （repo URL + commit + 文件清单）；上游无 NOTICE 文件。
-- **9 个第三方 skill 原样保留各自许可证**：8 个来自港科广（HKUST-GZ）DIAL
-  Lab 的 **Supervisor-Skills** 套件（骆昱宇 Yuyu Luo 及成员，© 2026；上游
-  LICENSE 为 **CC-BY-NC-SA-4.0**，含**非商用**条款——其中 4 个目录
-  frontmatter 标 CC-BY-4.0，本仓从严按 NC-SA 处理并记录差异）；1 个为
-  **academic-humanizer**（© 2026 AIScientists-Dev，MIT，谱系基于
-  blader/humanizer）。逐项溯源与许可证全文（`docs/licenses/`）见
-  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。它们不因与本仓
-  Apache-2.0 代码同树而改变；商用请核对非商用条款。
-- **CVPR 作者套件**（`templates/cvpr2025/`）按会议/作者套件原条款保留；
-  `ieeenat_fullname.bst` 为 LPPL（© 1993–2007 Patrick W. Daly）。见
-  `THIRD_PARTY_NOTICES.md`。
+- **First-party code & documentation:** Licensed under the **Apache License 2.0** ([LICENSE](LICENSE)). Code ported or adapted from `google-research/paper-orchestra` is attributed per Apache-2.0 §4 in [NOTICE](NOTICE).
+- **Nine bundled third-party skills:** Retained verbatim under their respective original licenses (not re-licensed under Apache-2.0):
+  - **8 skills from Supervisor-Skills** (Prof. Yuyu Luo & members, DIAL Lab, HKUST-GZ, © 2026) — Effective upstream license is **CC-BY-NC-SA-4.0** (**Non-Commercial**). Four skill frontmatters declare `CC-BY-4.0`, but this repository conservatively enforces the stricter repository-level `CC-BY-NC-SA-4.0` and documents the discrepancy.
+  - **1 skill from academic-humanizer** (© 2026 AIScientists-Dev, **MIT**, lineage from `blader/humanizer`).
+  - See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and [docs/licenses/](docs/licenses/) for itemized provenance and verbatim license texts. Verify non-commercial terms before any commercial use or redistribution.
+- **CVPR 2025 Author Kit** (`skills/paper-orchestrator/templates/cvpr2025/`): Retained under its original conference/author-kit terms; `ieeenat_fullname.bst` is licensed under **LPPL** (© 1993–2007 Patrick W. Daly).
 
 ---
 
-## 致谢
+## Acknowledgments
 
-- [google-research/paper-orchestra](https://github.com/google-research/paper-orchestra)
-  （Apache-2.0）：大纲 schema、文献检索、模板装配与提示词存档的上游出处。
-- **Supervisor-Skills** 套件 8 个 skill（paper-writer、intro-drafter、
-  tech-paper-template、benchmark-paper-template、deep-research、
-  figure-designer、pre-submission-reviewer、paper-polish）：香港科技大学
-  （广州）数据智能与分析实验室 DIAL Lab，骆昱宇 (Yuyu Luo) 助理教授及
-  实验室成员 —— [HKUSTDial/Supervisor-Skills](https://github.com/HKUSTDial/Supervisor-Skills)
-- **academic-humanizer**：AIScientists-Dev 社区 ——
-  [AIScientists-Dev/academic-humanizer](https://github.com/AIScientists-Dev/academic-humanizer)
-  （MIT；基于 [blader/humanizer](https://github.com/blader/humanizer)）
-- CVPR 作者套件（[cvpr-org/author-kit](https://github.com/cvpr-org/author-kit)）；
-  `ieeenat_fullname.bst` 作者 Patrick W. Daly。
-- 声音包语料 8 篇最佳论文：
-  1. *Visual Autoregressive Modeling*（NeurIPS 2024 Best Paper）
-  2. *RHO-1: Not All Tokens Are What You Need*（NeurIPS 2024 runner-up）
-  3. *Genie: Generative Interactive Environments*（ICML 2024 Best Paper）
-  4. *Debating with More Persuasive LLMs Leads to More Truthful Answers*（ICML 2024 Best Paper）
-  5. *Safety Alignment Should Be Made More Than Just a Few Tokens Deep*（ICLR 2025 Outstanding）
-  6. *Learning Dynamics of LLM Finetuning*（ICLR 2025 Outstanding）
-  7. *Generative Image Dynamics*（CVPR 2024 Best Paper）
-  8. *Rich Human Feedback for Text-to-Image Generation*（CVPR 2024 Best Paper）
+- **[google-research/paper-orchestra](https://github.com/google-research/paper-orchestra)** (Apache-2.0) — Upstream origin for outline schema, literature retrieval, template assembly, and archived prompts.
+- **[HKUSTDial/Supervisor-Skills](https://github.com/HKUSTDial/Supervisor-Skills)** — Prof. Yuyu Luo and members of the Data Intelligence and Analytics Lab (DIAL Lab), HKUST(GZ), for the 8 bundled sibling skills (`paper-writer`, `intro-drafter`, `tech-paper-template`, `benchmark-paper-template`, `deep-research`, `figure-designer`, `pre-submission-reviewer`, `paper-polish`).
+- **[AIScientists-Dev/academic-humanizer](https://github.com/AIScientists-Dev/academic-humanizer)** (MIT; derived from [blader/humanizer](https://github.com/blader/humanizer)).
+- **[cvpr-org/author-kit](https://github.com/cvpr-org/author-kit)** and Patrick W. Daly (`ieeenat_fullname.bst`).
+
+<details>
+<summary><strong>Default Voice Pack Calibration Corpus (8 Award-Winning Papers, 2024–2025)</strong></summary>
+
+1. *Visual Autoregressive Modeling* (NeurIPS 2024 Best Paper)
+2. *RHO-1: Not All Tokens Are What You Need* (NeurIPS 2024 Runner-Up)
+3. *Genie: Generative Interactive Environments* (ICML 2024 Best Paper)
+4. *Debating with More Persuasive LLMs Leads to More Truthful Answers* (ICML 2024 Best Paper)
+5. *Safety Alignment Should Be Made More Than Just a Few Tokens Deep* (ICLR 2025 Outstanding)
+6. *Learning Dynamics of LLM Finetuning* (ICLR 2025 Outstanding)
+7. *Generative Image Dynamics* (CVPR 2024 Best Paper)
+8. *Rich Human Feedback for Text-to-Image Generation* (CVPR 2024 Best Paper)
+
+</details>
 
 ---
 
-## 声明
+## Disclaimer
 
-本项目是独立衍生作品，与 Google 无隶属关系，也未获其背书。AI 辅助写作
-应遵守目标期刊/会议的 AI 使用披露政策。流水线保证的是「每个主张可溯源」，
-不替作者做科学判断：选题、实验设计、结论取舍与投稿责任仍在作者。
+This project is an independent derivative work and is **not** affiliated with, sponsored by, or endorsed by Google. Authors using AI-assisted writing tools must comply with the AI-use disclosure policies of their target journal or conference. PaperLedger enforces claim traceability; scientific judgment—including problem selection, experimental design, conclusions, and submission responsibility—remains strictly with the authors.
