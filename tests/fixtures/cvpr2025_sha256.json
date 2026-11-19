@@ -1,0 +1,10 @@
+{
+  "_source": "google-research/paper-orchestra @ d9bae997e793a015ed38bb1605be9eb58c00284f, templates/cvpr2025",
+  "_note": "SHA-256 of the CVPR author-kit files as copied byte-for-byte into skills/paper-orchestrator/templates/cvpr2025/.",
+  "template.tex": "ba9e4a4538c7dada46c3798a9a4021afd8ae8de8ec233fbb936b9a0e7a8ff7a6",
+  "preamble.tex": "e9808744f610081ab844b02a24b0e3108323578b1aaba10aa1cdb03c059d879b",
+  "cvpr.sty": "90d53ceb149262ad0fe5444bc3cc8e2f4630420877311b17a4a572de5740fd19",
+  "ieeenat_fullname.bst": "4877c30f96ccef297a3cf6502971b8d4e14d13228d93f468c9e9b198e2d07567",
+  "references.bib": "ab3e52e97086897ca880e7ea8f7ddf5818f8fb8e8b662002470caa353a6cb604",
+  "guidelines.md": "9b2efce82c9476b551b4493f9d8b9f52672356dca160b9d93d43b3fe5f45cb6e"
+}

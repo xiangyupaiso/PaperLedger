@@ -1,0 +1,41 @@
+PaperLedger
+Copyright 2026 the PaperLedger contributors
+
+This product includes software developed at Google LLC as part of
+google-research/paper-orchestra
+(https://github.com/google-research/paper-orchestra), at commit
+d9bae997e793a015ed38bb1605be9eb58c00284f, and licensed under the Apache
+License, Version 2.0. The upstream project does not ship a NOTICE file.
+
+Ported or adapted material in this distribution:
+
+- skills/paper-orchestrator/scripts/lit_search.py
+  Adapted from utils/scholar_utils.py (search/normalisation code). Local
+  changes include removal of upstream's API-key print, parameterised limit,
+  a 10s timeout, flattened authors, and added externalIds/bibtex fields.
+
+- skills/paper-orchestrator/scripts/latex_compose.py
+  Adapted from utils/pdf_utils.py::compile_latex and the template copytree
+  in methods/paper_writer.py. The section \input wiring and to_cites bridge
+  are original to this project.
+
+- skills/paper-orchestrator/assets/outline_template.json and
+  skills/paper-orchestrator/references/outline-schema.md
+  Derived from the output schema in methods/prompts/outline_agent.py
+  (extended with a lit_strategy field that does not exist upstream).
+
+- skills/paper-orchestrator/references/reflection-prompts.md
+  Archived prompt text from methods/agents/content_refinement_agent.py,
+  methods/prompts/content_refinement_agent.py,
+  methods/prompts/outline_agent.py,
+  autoraters/prompts/lit_review_quality_prompts.py, and
+  autoraters/prompts/sxs_quality_prompts.py.
+
+Not covered by this NOTICE:
+
+- skills/paper-orchestrator/templates/cvpr2025/ is the CVPR author kit,
+  redistributed under its original terms (see THIRD_PARTY_NOTICES.md).
+- skills/paper-orchestrator/scripts/plot_from_logs.py and
+  skills/paper-orchestrator/scripts/ledger_audit.py are original work.
+- The nine sibling skills under skills/ are third-party works retained
+  verbatim under their own licenses (see THIRD_PARTY_NOTICES.md).

@@ -1,0 +1,56 @@
+{
+  "title": "<paper title>",
+  "venue": "<target venue, e.g. CVPR 2025>",
+  "sections": [
+    {
+      "id": "intro",
+      "kind": "introduction",
+      "claims": ["C1"],
+      "purpose": "Motivate the problem and state the contribution."
+    },
+    {
+      "id": "related",
+      "kind": "related_work",
+      "claims": ["E3"],
+      "purpose": "Position against prior work at citation level."
+    },
+    {
+      "id": "method",
+      "kind": "method",
+      "claims": ["C2"],
+      "purpose": "Describe the proposed method."
+    },
+    {
+      "id": "experiments",
+      "kind": "experiments",
+      "claims": ["E1"],
+      "purpose": "Report results backed by L1 data."
+    },
+    {
+      "id": "conclusion",
+      "kind": "conclusion",
+      "claims": [],
+      "purpose": "Summarize and bound the conclusions."
+    }
+  ],
+  "lit_strategy": {
+    "queries": [
+      "<primary search query>",
+      "<keyword variant 2>",
+      "<keyword variant 3>"
+    ],
+    "must_contain": [
+      "<topic the related work must cover>"
+    ]
+  },
+  "viz_plan": {
+    "figures": [
+      {
+        "id": "fig1",
+        "source_section": "experiments",
+        "kind": "plot",
+        "data_ref": "materials/train_log.csv"
+      }
+    ]
+  }
+}

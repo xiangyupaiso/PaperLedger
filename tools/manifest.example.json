@@ -1,0 +1,25 @@
+{
+  "_comment_source": "Example values. Point this at the skill root you install from; adjust every path to your own environment.",
+  "source": "~/.claude/skills",
+  "targets": [
+    "~/.codex/skills",
+    "~/.gemini/config/skills"
+  ],
+  "optional_targets": [
+    "~/.agents/skills"
+  ],
+  "_comment_optional_targets": "Opt-in only. sync-skills.ps1 never touches these roots unless you pass -IncludeAgentsRoot, and a missing root is deliberately reported as a failure instead of being created. Delete this list (or leave it empty) if you do not use an agents skill root.",
+  "_comment_manifest": "skills lists every skill this manifest owns; sync-skills.ps1 mirrors strictly inside each listed skill directory and never creates, deletes or modifies anything else in the target roots. Rename this file to manifest.json or pass it with -ManifestPath.",
+  "skills": [
+    { "name": "paper-orchestrator", "category": "general" },
+    { "name": "paper-writer", "category": "writing" },
+    { "name": "intro-drafter", "category": "writing" },
+    { "name": "tech-paper-template", "category": "writing" },
+    { "name": "benchmark-paper-template", "category": "writing" },
+    { "name": "pre-submission-reviewer", "category": "writing" },
+    { "name": "paper-polish", "category": "writing" },
+    { "name": "academic-humanizer", "category": "writing" },
+    { "name": "deep-research", "category": "research-tool" },
+    { "name": "figure-designer", "category": "research-tool" }
+  ]
+}

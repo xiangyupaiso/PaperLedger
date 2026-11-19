@@ -1,0 +1,3 @@
+skills/paper-orchestrator/templates/cvpr2025/** -text
+tests/fixtures/cvpr_real/template.tex -text
+tests/fixtures/cvpr_real/cvpr.sty -text

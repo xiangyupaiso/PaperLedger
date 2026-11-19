@@ -1,0 +1,6 @@
+{"id": "E1", "claim": "Our model reaches 0.93 accuracy.", "origin": "material:results.csv#L2-L3", "evidence_level": "L1", "boundary": "any", "conversions": ["round_2dp"]}
+{"id": "E2", "claim": "The method improves accuracy over the baseline.", "origin": "retrieval:jones2021", "evidence_level": "L2", "boundary": "headline_only"}
+{"id": "E3", "claim": "Smith et al. (2023) addressed graph classification.", "origin": "retrieval:smith2023", "evidence_level": "L3", "boundary": "related_work_only"}
+{"id": "K1", "claim": "Neural networks are widely used.", "origin": "field_common", "evidence_level": "L0", "boundary": "directional"}
+{"id": "C1", "claim": "<contribution claim backed by L1 data>", "origin": "material:<relpath>#L<start>-L<end>", "evidence_level": "L1", "boundary": "any"}
+{"id": "C2", "claim": "<method claim backed by L1 full text>", "origin": "material:<relpath>#L<start>", "evidence_level": "L1", "boundary": "any"}
